@@ -1,14 +1,30 @@
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, Archive, Calendar, Cat, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, Circle, Inbox, ListTodo, Plus, RotateCcw, Save, Square, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  Archive,
+  Cat,
+  Inbox,
+  Leaf,
+  Plus,
+  Sparkles,
+  Sun,
+  Trash2,
+} from "lucide-react";
 import { cn } from "../../lib/utils";
+import { DatePicker } from "../ui/DatePicker";
+import { playTaskPopSound, playSweepSound } from "../../lib/sound";
+import { TaskItem } from "./TaskItem";
+import type { Project } from "../projects/ProjectsView";
 
 export interface Task {
   id: string;
   workspace_id: string;
+  project_id?: string | null;
   title: string;
   description: string | null;
-  status: "inbox" | "todo" | "in_progress" | "completed" | "archived";
+  status: "inbox" | "planned" | "in_progress" | "waiting" | "completed" | "archived";
   priority: "low" | "medium" | "high" | "urgent";
   start_date: number | null;
   due_date: number | null;
@@ -19,92 +35,307 @@ export interface Task {
   updated_at: number;
 }
 
-export interface Subtask { id: string; task_id: string; title: string; is_completed: number; position: number; created_at: number; }
-interface TasksViewProps { workspaceId: string; }
-type FilterType = "today" | "inbox" | "recovery" | "all" | "completed";
-type TaskEdit = { dueDate: string; nextAction: string };
+export interface Subtask {
+  id: string;
+  task_id: string;
+  title: string;
+  is_completed: number;
+  position: number;
+  created_at: number;
+}
 
-const toLocalDateInput = (timestamp: number | null) => {
-  if (!timestamp) return "";
-  const date = new Date(timestamp * 1000);
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
-};
-const dateInputToEpoch = (value: string) => value ? Math.floor(new Date(`${value}T12:00:00`).getTime() / 1000) : null;
+export type FilterType = "today" | "inbox" | "recovery" | "all" | "completed" | "archive";
 
-export const TasksView: React.FC<TasksViewProps> = ({ workspaceId }) => {
+function dateInputToEpoch(dateStr: string): number | null {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return Math.floor(new Date(y, m - 1, d, 12, 0, 0).getTime() / 1000);
+}
+
+export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [filter, setFilter] = useState<FilterType>("today");
+  const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
   const [newPriority, setNewPriority] = useState<Task["priority"]>("medium");
   const [newDueDate, setNewDueDate] = useState("");
-  const [filter, setFilter] = useState<FilterType>("today");
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
   const [subtasksMap, setSubtasksMap] = useState<Record<string, Subtask[]>>({});
-  const [newSubtaskTitle, setNewSubtaskTitle] = useState<Record<string, string>>({});
-  const [taskEdits, setTaskEdits] = useState<Record<string, TaskEdit>>({});
-  const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [clearingCompleted, setClearingCompleted] = useState(false);
+  const [showClearArchiveDialog, setShowClearArchiveDialog] = useState(false);
+  const [clearingArchive, setClearingArchive] = useState(false);
+  const [completedPosition, setCompletedPosition] = useState<"bottom" | "remain">(() => {
+    const saved = localStorage.getItem("laya-completed-position");
+    return saved === "remain" ? "remain" : "bottom";
+  });
 
-  const loadTasks = async () => {
+  const handleCompletedPositionChange = async (pos: "bottom" | "remain") => {
+    setCompletedPosition(pos);
+    localStorage.setItem("laya-completed-position", pos);
     try {
-      setLoading(true); setErrorMessage(null);
-      setTasks(await invoke<Task[]>("get_tasks", { workspaceId }));
+      await invoke("update_setting", { key: "completed_position", value: pos });
+    } catch (err) {
+      console.error("Failed to save completed_position setting:", err);
+    }
+  };
+
+  // Smooth completion choreography state
+  const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
+  const [departingTaskIds, setDepartingTaskIds] = useState<Set<string>>(new Set());
+
+  // Load tasks & projects without flickering loading placeholder after initial mount
+  const loadData = async (isInitial = false) => {
+    try {
+      if (isInitial) setLoading(true);
+      setErrorMessage(null);
+      const [fetchedTasks, fetchedProjects] = await Promise.all([
+        invoke<Task[]>("get_tasks", { workspaceId }),
+        invoke<Project[]>("get_projects", { workspaceId }).catch(() => [] as Project[]),
+      ]);
+      setTasks(fetchedTasks);
+      setProjects(fetchedProjects);
     } catch (err) {
       console.error("Failed to load tasks:", err);
       setErrorMessage(`Couldn't load your tasks: ${String(err)}`);
-    } finally { setLoading(false); }
+    } finally {
+      if (isInitial) setLoading(false);
+    }
   };
 
   const loadSubtasks = async (taskId: string) => {
     try {
       const subtasks = await invoke<Subtask[]>("get_subtasks", { taskId });
       setSubtasksMap((previous) => ({ ...previous, [taskId]: subtasks }));
+    } catch (err) {
+      setErrorMessage(`Couldn't load subtasks: ${String(err)}`);
     }
-    catch (err) { setErrorMessage(`Couldn't load subtasks: ${String(err)}`); }
   };
 
-  useEffect(() => { if (workspaceId) void loadTasks(); }, [workspaceId]);
+  useEffect(() => {
+    if (workspaceId) void loadData(true);
+  }, [workspaceId]);
 
   const refreshAfter = async (action: () => Promise<unknown>, message: string) => {
-    try { setErrorMessage(null); await action(); await loadTasks(); }
-    catch (err) { console.error(message, err); setErrorMessage(`${message}: ${String(err)}`); }
+    try {
+      setErrorMessage(null);
+      await action();
+      await loadData(false);
+    } catch (err) {
+      console.error(message, err);
+      setErrorMessage(`${message}: ${String(err)}`);
+    }
+  };
+
+  // Rewarding celebratory completion with tab-aware departure
+  const handleToggleTask = async (task: Task) => {
+    if (task.status === "completed") {
+      // Uncompleting a task back to todo
+      if (filter === "completed") {
+        setDepartingTaskIds((prev) => new Set(prev).add(task.id));
+        await new Promise((resolve) => window.setTimeout(resolve, 380));
+        await refreshAfter(() => invoke("toggle_task_status", { taskId: task.id }), "Couldn't update this task");
+        setDepartingTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(task.id);
+          return next;
+        });
+      } else {
+        await refreshAfter(() => invoke("toggle_task_status", { taskId: task.id }), "Couldn't update this task");
+      }
+      return;
+    }
+
+    // 1. Play tactile pop sound & mark as completing
+    playTaskPopSound();
+    setCompletingTaskIds((prev) => new Set(prev).add(task.id));
+
+    // Optimistically update local task status so the checkmark & strikethrough respond in 0ms
+    setTasks((prev) =>
+      prev.map((t) => (t.id === task.id ? { ...t, status: "completed" as const } : t))
+    );
+
+    try {
+      await invoke("toggle_task_status", { taskId: task.id });
+    } catch (err) {
+      setErrorMessage(`Couldn't complete task: ${String(err)}`);
+      setCompletingTaskIds((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+      await loadData(false);
+      return;
+    }
+
+    // 2. Only depart in tabs where completed tasks should leave the view when completedPosition is "bottom"
+    const shouldDepart =
+      completedPosition === "bottom" &&
+      (filter === "today" || filter === "inbox" || filter === "recovery");
+
+    if (shouldDepart) {
+      // Let user enjoy the celebratory checkmark pop & micro-sparkles
+      await new Promise((resolve) => window.setTimeout(resolve, 480));
+      // Trigger smooth grid collapse
+      setDepartingTaskIds((prev) => new Set(prev).add(task.id));
+      await new Promise((resolve) => window.setTimeout(resolve, 360));
+    } else {
+      await new Promise((resolve) => window.setTimeout(resolve, 480));
+    }
+
+    // Silently reconcile with backend and clean up animation states
+    await loadData(false);
+    setCompletingTaskIds((prev) => {
+      const next = new Set(prev);
+      next.delete(task.id);
+      return next;
+    });
+    setDepartingTaskIds((prev) => {
+      const next = new Set(prev);
+      next.delete(task.id);
+      return next;
+    });
   };
 
   const handleCapture = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!newTitle.trim()) return;
-    await refreshAfter(() => invoke("create_task", { workspaceId, title: newTitle.trim(), description: null, priority: newPriority, startDate: null, dueDate: dateInputToEpoch(newDueDate), nextAction: null }), "Couldn't capture this task");
-    const isForToday = newDueDate === toLocalDateInput(Math.floor(Date.now() / 1000));
-    setNewTitle(""); setNewDueDate(""); setFilter(isForToday ? "today" : newDueDate ? "all" : "inbox");
+
+    let targetStatus = "inbox";
+    let dueDateEpoch = dateInputToEpoch(newDueDate);
+
+    if (filter === "today") {
+      targetStatus = "planned";
+      if (!dueDateEpoch) {
+        dueDateEpoch = Math.floor(new Date().setHours(12, 0, 0, 0) / 1000);
+      }
+    }
+
+    await refreshAfter(
+      () =>
+        invoke("create_task", {
+          workspaceId,
+          title: newTitle.trim(),
+          priority: newPriority,
+          status: targetStatus,
+          dueDate: dueDateEpoch,
+        }),
+      "Couldn't add task"
+    );
+
+    setNewTitle("");
+    setNewDueDate("");
+    setNewPriority("medium");
   };
 
-  const toggleExpandTask = (task: Task) => setExpandedTaskIds((previous) => {
-    const next = new Set(previous);
-    if (next.has(task.id)) next.delete(task.id);
-    else {
-      next.add(task.id);
-      if (!subtasksMap[task.id]) void loadSubtasks(task.id);
-      setTaskEdits((edits) => ({ ...edits, [task.id]: edits[task.id] ?? { dueDate: toLocalDateInput(task.due_date), nextAction: task.next_action ?? "" } }));
+  const handleSaveTaskEdits = async (
+    task: Task,
+    edits: {
+      title: string;
+      description: string | null;
+      priority: Task["priority"];
+      dueDate: number | null;
+      nextAction: string | null;
     }
-    return next;
-  });
+  ) => {
+    await refreshAfter(
+      () =>
+        invoke("update_task", {
+          taskId: task.id,
+          title: edits.title,
+          description: edits.description,
+          priority: edits.priority,
+          dueDate: edits.dueDate,
+          nextAction: edits.nextAction,
+          projectId: task.project_id ?? null,
+        }),
+      "Couldn't save task edits"
+    );
+  };
+
+  const handleUpdatePriority = async (taskId: string, priority: Task["priority"]) => {
+    await refreshAfter(
+      () => invoke("update_task_priority", { taskId, priority }),
+      "Couldn't update priority"
+    );
+  };
+
+  const handleUpdateDueDate = async (taskId: string, dueDateStr: string) => {
+    const dueDateEpoch = dateInputToEpoch(dueDateStr);
+    await refreshAfter(
+      () => invoke("update_task_due_date", { taskId, dueDate: dueDateEpoch }),
+      "Couldn't update due date"
+    );
+  };
+
+  const setTaskStatus = (taskId: string, status: string, errorLabel: string) => {
+    return refreshAfter(() => invoke("set_task_status", { taskId, status }), errorLabel);
+  };
 
   const setTaskForToday = (taskId: string) => {
-    const today = new Date();
-    const dueDate = Math.floor(new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12).getTime() / 1000);
-    return refreshAfter(() => invoke("plan_task_for_today", { taskId, dueDate }), "Couldn't move this task to Today");
+    const todayNoonEpoch = Math.floor(new Date().setHours(12, 0, 0, 0) / 1000);
+    return refreshAfter(
+      () => invoke("plan_task_for_today", { taskId, dueDate: todayNoonEpoch }),
+      "Couldn't plan task for Today"
+    );
   };
-  const setTaskStatus = (taskId: string, status: Task["status"], message: string) => refreshAfter(() => invoke("set_task_status", { taskId, status }), message);
 
-  const clearCompleted = async () => {
+  const handleRestoreTask = async (taskId: string) => {
+    try {
+      await invoke("restore_task", { taskId });
+      playTaskPopSound();
+      await loadData(false);
+    } catch (err) {
+      setErrorMessage(`Couldn't restore task: ${String(err)}`);
+    }
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    return refreshAfter(
+      () => invoke("delete_task", { taskId }),
+      "Couldn't delete task"
+    );
+  };
+
+  const handleCreateSubtask = async (taskId: string, title: string) => {
+    try {
+      await invoke("create_subtask", { taskId, title });
+      await loadSubtasks(taskId);
+    } catch (err) {
+      setErrorMessage(`Couldn't create subtask: ${String(err)}`);
+    }
+  };
+
+  const handleToggleSubtask = async (taskId: string, subtaskId: string) => {
+    try {
+      await invoke("toggle_subtask", { subtaskId });
+      await loadSubtasks(taskId);
+    } catch (err) {
+      setErrorMessage(`Couldn't update subtask: ${String(err)}`);
+    }
+  };
+
+  const handleDeleteSubtask = async (taskId: string, subtaskId: string) => {
+    try {
+      await invoke("delete_subtask", { subtaskId });
+      await loadSubtasks(taskId);
+    } catch (err) {
+      setErrorMessage(`Couldn't delete subtask: ${String(err)}`);
+    }
+  };
+
+  const handleClearCompleted = async () => {
     try {
       setClearingCompleted(true);
-      setErrorMessage(null);
+      playSweepSound();
       await invoke("clear_completed_tasks", { workspaceId });
-      await new Promise((resolve) => window.setTimeout(resolve, 850));
-      await loadTasks();
+
+      // Choreographed 1400ms sweeping moment
+      await new Promise((resolve) => setTimeout(resolve, 1400));
+      await loadData(false);
       setShowClearDialog(false);
     } catch (err) {
       setErrorMessage(`Couldn't clear completed tasks: ${String(err)}`);
@@ -113,56 +344,480 @@ export const TasksView: React.FC<TasksViewProps> = ({ workspaceId }) => {
     }
   };
 
-  const saveTaskDetails = async (task: Task) => {
-    const edit = taskEdits[task.id]; if (!edit) return;
-    await refreshAfter(async () => {
-      await invoke("update_task_due_date", { taskId: task.id, dueDate: dateInputToEpoch(edit.dueDate) });
-      await invoke("update_task_next_action", { taskId: task.id, nextAction: edit.nextAction.trim() || null });
-    }, "Couldn't save task details");
+  const handleClearArchive = async () => {
+    try {
+      setClearingArchive(true);
+      setErrorMessage(null);
+      await invoke("clear_archived_tasks", { workspaceId });
+      playSweepSound();
+      await loadData(false);
+      setShowClearArchiveDialog(false);
+    } catch (err) {
+      console.error("Failed to clear archive:", err);
+      setErrorMessage(`Couldn't empty archive: ${String(err)}`);
+    } finally {
+      setClearingArchive(false);
+    }
   };
 
-  const handleCreateSubtask = async (taskId: string, event: React.FormEvent) => {
-    event.preventDefault(); const title = (newSubtaskTitle[taskId] || "").trim(); if (!title) return;
-    try { await invoke("create_subtask", { taskId, title }); setNewSubtaskTitle((previous) => ({ ...previous, [taskId]: "" })); await loadSubtasks(taskId); }
-    catch (err) { setErrorMessage(`Couldn't create subtask: ${String(err)}`); }
-  };
-  const handleSubtaskAction = async (taskId: string, command: string, subtaskId: string) => {
-    try { await invoke(command, { subtaskId }); await loadSubtasks(taskId); }
-    catch (err) { setErrorMessage(`Couldn't update subtask: ${String(err)}`); }
+  const toggleExpandTask = (taskId: string) => {
+    setExpandedTaskIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
   };
 
-  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
-  const endOfToday = new Date(startOfToday); endOfToday.setHours(23, 59, 59, 999);
-  const startOfTodayEpoch = Math.floor(startOfToday.getTime() / 1000);
-  const endOfTodayEpoch = Math.floor(endOfToday.getTime() / 1000);
   const isOpen = (task: Task) => task.status !== "completed" && task.status !== "archived";
-  const isToday = (task: Task) => isOpen(task) && task.due_date !== null && task.due_date >= startOfTodayEpoch && task.due_date <= endOfTodayEpoch;
-  const isOverdue = (task: Task) => isOpen(task) && task.due_date !== null && task.due_date < startOfTodayEpoch;
-  const filteredTasks = tasks.filter((task) => filter === "today" ? isToday(task) : filter === "inbox" ? task.status === "inbox" : filter === "recovery" ? isOverdue(task) : filter === "completed" ? task.status === "completed" : task.status !== "archived");
-  const counts = { today: tasks.filter(isToday).length, inbox: tasks.filter((task) => task.status === "inbox").length, recovery: tasks.filter(isOverdue).length, all: tasks.filter((task) => task.status !== "archived").length, completed: tasks.filter((task) => task.status === "completed").length };
-  const filterLabels: Record<FilterType, { title: string; helper: string }> = {
-    today: { title: "Today", helper: "A small, realistic list for the day ahead." }, inbox: { title: "Inbox", helper: "Capture first. Decide what matters when you are ready." }, recovery: { title: "Recovery", helper: "Nothing is behind forever. Choose what to keep, move, or let go." }, all: { title: "All tasks", helper: "Your complete active list, without archived items." }, completed: { title: "Completed", helper: "A record of what you have already moved forward." },
+  const isToday = (task: Task) => {
+    if (!isOpen(task)) return false;
+    if (task.due_date === null) return false;
+    const taskDate = new Date(task.due_date * 1000);
+    const today = new Date();
+    return (
+      taskDate.getFullYear() === today.getFullYear() &&
+      taskDate.getMonth() === today.getMonth() &&
+      taskDate.getDate() === today.getDate()
+    );
   };
-  const priorityColor = (priority: Task["priority"]) => ({ urgent: "text-rose-500 bg-rose-500/10 border-rose-500/20", high: "text-amber-500 bg-amber-500/10 border-amber-500/20", medium: "text-blue-500 bg-blue-500/10 border-blue-500/20", low: "text-slate-400 bg-slate-500/10 border-slate-500/20" }[priority]);
+  const isOverdue = (task: Task) => {
+    if (!isOpen(task)) return false;
+    if (task.due_date === null) return false;
+    const taskDate = new Date(task.due_date * 1000);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    return taskDate < todayStart;
+  };
 
-  return <div className="space-y-6 max-w-4xl">
-    <div className="space-y-1"><h2 className="text-xl font-semibold tracking-tight">{filterLabels[filter].title}</h2><p className="text-sm text-muted-foreground">{filterLabels[filter].helper}</p></div>
-    <form onSubmit={handleCapture} className="flex flex-wrap items-center gap-2.5 bg-card border border-border p-3 rounded-xl shadow-xs">
-      <Inbox className="h-4 w-4 text-muted-foreground ml-1" /><input type="text" autoFocus placeholder="Capture a task - you can plan it later" value={newTitle} onChange={(event) => setNewTitle(event.target.value)} className="flex-1 min-w-[200px] bg-transparent px-2 py-1.5 text-sm focus:outline-none placeholder:text-muted-foreground/60 text-foreground" />
-      <input type="date" value={newDueDate} onChange={(event) => setNewDueDate(event.target.value)} aria-label="Due date" className="bg-secondary text-secondary-foreground border border-border text-xs rounded-lg px-2.5 py-1.5 focus:outline-none" />
-      <select value={newPriority} onChange={(event) => setNewPriority(event.target.value as Task["priority"])} className="bg-secondary text-secondary-foreground border border-border text-xs rounded-lg px-2.5 py-1.5 focus:outline-none"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="urgent">Urgent</option></select>
-      <button type="submit" disabled={!newTitle.trim()} className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-xs font-medium px-3.5 py-2 rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity"><Plus className="h-4 w-4" /> Capture</button>
-    </form>
-    <div className="flex flex-wrap items-center gap-1.5"><div className="flex flex-wrap items-center gap-1.5 bg-muted/60 p-1 rounded-lg border border-border text-xs w-fit">{(["today", "inbox", "recovery", "all", "completed"] as FilterType[]).map((item) => <button key={item} onClick={() => setFilter(item)} className={cn("px-3 py-1.5 rounded-md transition-colors font-medium capitalize", filter === item ? "bg-background shadow-xs text-foreground" : "text-muted-foreground hover:text-foreground")}>{item} ({counts[item]})</button>)}</div>{filter === "completed" && counts.completed > 0 && <button type="button" onClick={() => setShowClearDialog(true)} className="inline-flex items-center gap-1.5 border border-border text-muted-foreground hover:text-foreground hover:bg-muted px-3 py-1.5 rounded-lg text-xs font-medium"><Trash2 className="h-3.5 w-3.5" /> Clear completed</button>}</div>
-    {errorMessage && <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-500"><AlertCircle className="h-4 w-4 shrink-0" />{errorMessage}</div>}
-    {loading ? <p className="text-xs text-muted-foreground">Reading your local tasks...</p> : filteredTasks.length === 0 ? <div className="border border-dashed border-border rounded-xl p-8 text-center space-y-1"><p className="text-sm font-medium text-foreground">{filter === "today" ? "Your day is clear" : filter === "recovery" ? "Nothing needs rescuing" : "Nothing here yet"}</p><p className="text-xs text-muted-foreground">{filter === "today" ? "Move a task from Inbox when you are ready to make room for it." : "Capture a task above whenever it comes to mind."}</p></div> : <div className="space-y-2">{filteredTasks.map((task) => {
-      const expanded = expandedTaskIds.has(task.id); const subtasks = subtasksMap[task.id] || []; const completedSubtasks = subtasks.filter((subtask) => subtask.is_completed === 1).length; const overdue = isOverdue(task); const edit = taskEdits[task.id] ?? { dueDate: toLocalDateInput(task.due_date), nextAction: task.next_action ?? "" };
-      return <div key={task.id} className={cn("rounded-xl border border-border bg-card overflow-hidden transition-all duration-300", task.status === "completed" && "bg-muted/30 opacity-80")}>
-        <div className="flex items-center justify-between p-3.5 gap-3 group"><div className="flex items-center gap-3 flex-1 min-w-0"><button type="button" onClick={() => toggleExpandTask(task)} className="text-muted-foreground hover:text-foreground p-0.5" title="Show task details">{expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</button><button type="button" onClick={() => void refreshAfter(() => invoke("toggle_task_status", { taskId: task.id }), "Couldn't update this task")} className="shrink-0">{task.status === "completed" ? <CheckCircle2 className="h-5 w-5 text-emerald-500 animate-task-check" /> : <Circle className="h-5 w-5 text-muted-foreground hover:text-foreground transition-transform hover:scale-110" />}</button><div className="min-w-0 flex-1"><p className={cn("text-sm font-medium truncate transition-colors duration-300", task.status === "completed" && "line-through text-muted-foreground")}>{task.title}</p>{task.next_action && <p className="text-xs text-muted-foreground truncate mt-0.5">Next: {task.next_action}</p>}</div><div className="flex items-center gap-1.5 shrink-0">{subtasks.length > 0 && <span className="text-[11px] text-muted-foreground font-mono bg-muted px-2 py-0.5 rounded-md border border-border">{completedSubtasks}/{subtasks.length}</span>}{task.due_date && <span className={cn("inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border", overdue ? "text-rose-500 bg-rose-500/10 border-rose-500/20" : "text-muted-foreground bg-muted border-border")}><Calendar className="h-3 w-3" />{overdue ? "Needs a new plan" : isToday(task) ? "Today" : new Date(task.due_date * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}<span className={cn("text-[10px] font-semibold uppercase px-2 py-0.5 rounded-md border", priorityColor(task.priority))}>{task.priority}</span></div></div>
-          {isOpen(task) && <div className="flex items-center gap-1">{task.status === "inbox" || overdue ? <button type="button" onClick={() => void setTaskForToday(task.id)} className="text-xs px-2 py-1 rounded-md bg-secondary hover:bg-secondary/80" title="Move to Today">Today</button> : null}{task.status !== "inbox" ? <button type="button" onClick={() => void setTaskStatus(task.id, "inbox", "Couldn't move this task to Inbox")} className="text-muted-foreground hover:text-foreground p-1.5" title="Return to Inbox"><RotateCcw className="h-3.5 w-3.5" /></button> : null}<button type="button" onClick={() => void setTaskStatus(task.id, "archived", "Couldn't archive this task")} className="text-muted-foreground hover:text-foreground p-1.5" title="Archive task"><Archive className="h-3.5 w-3.5" /></button></div>}</div>
-        {expanded && <div className="bg-muted/20 border-t border-border px-6 py-4 space-y-4"><div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2"><input value={edit.nextAction} onChange={(event) => setTaskEdits((previous) => ({ ...previous, [task.id]: { ...edit, nextAction: event.target.value } }))} placeholder="What is the next visible action?" className="bg-background border border-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none" /><div className="flex gap-2"><input type="date" value={edit.dueDate} onChange={(event) => setTaskEdits((previous) => ({ ...previous, [task.id]: { ...edit, dueDate: event.target.value } }))} className="bg-background border border-border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none" /><button type="button" onClick={() => void saveTaskDetails(task)} className="inline-flex items-center gap-1 bg-secondary hover:bg-secondary/80 border border-border rounded-lg px-2.5 py-1.5 text-xs"><Save className="h-3.5 w-3.5" /> Save</button></div></div><div className="space-y-1.5">{subtasks.map((subtask) => <div key={subtask.id} className="flex items-center justify-between py-1 group/subtask text-xs"><div className="flex items-center gap-2.5 min-w-0"><button type="button" onClick={() => void handleSubtaskAction(task.id, "toggle_subtask", subtask.id)}>{subtask.is_completed === 1 ? <CheckSquare className="h-3.5 w-3.5 text-emerald-500" /> : <Square className="h-3.5 w-3.5 text-muted-foreground" />}</button><span className={cn("truncate", subtask.is_completed === 1 && "line-through text-muted-foreground")}>{subtask.title}</span></div><button type="button" onClick={() => void handleSubtaskAction(task.id, "delete_subtask", subtask.id)} className="text-muted-foreground hover:text-rose-500 p-1" title="Delete subtask"><Trash2 className="h-3 w-3" /></button></div>)}</div><form onSubmit={(event) => void handleCreateSubtask(task.id, event)} className="flex items-center gap-2"><ListTodo className="h-3.5 w-3.5 text-muted-foreground" /><input type="text" placeholder="Add a small next step..." value={newSubtaskTitle[task.id] || ""} onChange={(event) => setNewSubtaskTitle((previous) => ({ ...previous, [task.id]: event.target.value }))} className="flex-1 bg-background border border-border rounded-lg px-2.5 py-1 text-xs focus:outline-none" /><button type="submit" disabled={!(newSubtaskTitle[task.id] || "").trim()} className="bg-secondary disabled:opacity-50 border border-border text-xs px-2.5 py-1 rounded-lg">Add step</button></form></div>}
-      </div>;
-    })}</div>}
-    {showClearDialog && <div className="fixed inset-0 z-50 grid place-items-center bg-background/55 p-5 backdrop-blur-sm"><div role="dialog" aria-modal="true" aria-labelledby="clear-completed-title" className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl text-center"><Cat className={cn("mx-auto mb-3 h-10 w-10 text-muted-foreground", clearingCompleted && "animate-cat-tidy")} strokeWidth={1.5} /><h3 id="clear-completed-title" className="text-base font-semibold">{clearingCompleted ? "Tidying up completed tasks…" : "Clear completed tasks?"}</h3><p className="mt-2 text-sm text-muted-foreground">{clearingCompleted ? "A small helper is putting them away." : `This will permanently remove ${counts.completed} completed task${counts.completed === 1 ? "" : "s"} and their steps.`}</p><div className="mt-5 flex justify-center gap-2">{!clearingCompleted && <button type="button" onClick={() => setShowClearDialog(false)} className="rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-muted">Keep them</button>}<button type="button" disabled={clearingCompleted} onClick={() => void clearCompleted()} className="rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-70">{clearingCompleted ? "Tidying…" : "Clear them"}</button></div></div></div>}
-  </div>;
+  // Exact filtering including dedicated archive filter
+  const filteredTasks = tasks.filter((task) => {
+    // Keep completing and departing tasks in the list during exit animation
+    if (completingTaskIds.has(task.id) || departingTaskIds.has(task.id)) return true;
+
+    if (filter === "today") return isToday(task);
+    if (filter === "inbox") return task.status === "inbox";
+    if (filter === "recovery") return isOverdue(task);
+    if (filter === "completed") return task.status === "completed";
+    if (filter === "archive") return task.status === "archived";
+    return task.status !== "archived";
+  });
+
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    if (completedPosition === "bottom" && filter !== "completed" && filter !== "archive") {
+      const aDone = a.status === "completed" || completingTaskIds.has(a.id) ? 1 : 0;
+      const bDone = b.status === "completed" || completingTaskIds.has(b.id) ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+    }
+    return 0;
+  });
+
+  const counts = {
+    today: tasks.filter(isToday).length,
+    inbox: tasks.filter((task) => task.status === "inbox").length,
+    recovery: tasks.filter(isOverdue).length,
+    all: tasks.filter((task) => task.status !== "archived").length,
+    completed: tasks.filter((task) => task.status === "completed").length,
+    archive: tasks.filter((task) => task.status === "archived").length,
+  };
+
+  const filterLabels: Record<FilterType, { title: string; helper: string }> = {
+    today: { title: "Today", helper: "A focused, realistic list for the day ahead." },
+    inbox: { title: "Inbox", helper: "Capture first. Decide what matters when you are ready." },
+    recovery: { title: "Recovery", helper: "Nothing is behind forever. Choose what to keep, move, or let go." },
+    all: { title: "All tasks", helper: "Your complete active list across the workspace." },
+    completed: { title: "Completed", helper: "A celebratory record of everything you have moved forward." },
+    archive: { title: "Archive & History", helper: "Tidied-up tasks and history. Restore accidental removals with 1 click." },
+  };
+
+  const projectsMap = new Map(projects.map((p) => [p.id, p]));
+
+  return (
+    <div className="space-y-6 w-full max-w-6xl mx-auto animate-smooth-in pb-12">
+      {/* Title & Stats */}
+      <div className="flex flex-wrap items-baseline justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">
+              {filterLabels[filter].title}
+            </h2>
+            <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+              {counts[filter]} {counts[filter] === 1 ? "task" : "tasks"}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground">{filterLabels[filter].helper}</p>
+        </div>
+      </div>
+
+      {/* Quick capture form - hidden in archive view */}
+      {filter !== "archive" && (
+        <form
+          onSubmit={handleCapture}
+          className="flex flex-wrap sm:flex-nowrap items-center gap-3 bg-card border border-border p-3 rounded-2xl shadow-xs hover:shadow-card transition-shadow duration-200"
+        >
+          <div className="flex items-center gap-2 flex-1 min-w-[220px]">
+            <Inbox className="h-4 w-4 text-muted-foreground shrink-0 ml-1.5" />
+            <input
+              type="text"
+              autoFocus
+              placeholder="Capture a task — press Enter to save"
+              value={newTitle}
+              onChange={(event) => setNewTitle(event.target.value)}
+              className="flex-1 bg-transparent px-2 py-1.5 text-sm focus:outline-none placeholder:text-muted-foreground/60 text-foreground"
+            />
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <DatePicker value={newDueDate} onChange={setNewDueDate} placeholder="Set date" />
+            <select
+              value={newPriority}
+              onChange={(event) => setNewPriority(event.target.value as Task["priority"])}
+              className="bg-secondary text-secondary-foreground border border-border text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors cursor-pointer"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+            <button
+              type="submit"
+              disabled={!newTitle.trim()}
+              className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-xs font-semibold px-4 py-2 rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity duration-150 cursor-pointer shadow-2xs"
+            >
+              <Plus className="h-4 w-4" /> Capture
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Filter tabs & Task controls toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        {/* Segmented Filter Pills */}
+        <div className="flex flex-wrap items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border text-xs w-fit">
+          {(["today", "inbox", "recovery", "all", "completed", "archive"] as FilterType[]).map((item) => {
+            const isActive = filter === item;
+            return (
+              <button
+                key={item}
+                onClick={() => setFilter(item)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg font-medium capitalize transition-all duration-150 cursor-pointer flex items-center gap-1.5",
+                  isActive
+                    ? "bg-background shadow-xs text-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span>{item === "archive" ? "Archive" : item}</span>
+                <span
+                  className={cn(
+                    "text-[10px] font-mono px-1.5 py-0.2 rounded-full",
+                    isActive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                  )}
+                >
+                  {counts[item]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Right Toolbar Controls */}
+        <div className="flex items-center gap-2">
+          {/* Completed Task Position Toggle */}
+          {filter !== "archive" && (
+            <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border text-xs">
+              <span className="text-muted-foreground pl-1.5 text-[11px] font-medium hidden sm:inline">
+                Completed:
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleCompletedPositionChange("bottom")}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer",
+                  completedPosition === "bottom"
+                    ? "bg-background shadow-xs text-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Move completed tasks to the end of the list"
+              >
+                Move to end
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCompletedPositionChange("remain")}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer",
+                  completedPosition === "remain"
+                    ? "bg-background shadow-xs text-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Keep completed tasks in their original order"
+              >
+                Remain in place
+              </button>
+            </div>
+          )}
+
+          {/* Clear Completed Action */}
+          {filter === "completed" && counts.completed > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowClearDialog(true)}
+              className="inline-flex items-center gap-1.5 border border-border text-muted-foreground hover:text-foreground hover:bg-muted px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors duration-150 cursor-pointer shadow-2xs"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Clear completed ({counts.completed})
+            </button>
+          )}
+
+          {/* Empty Archive Action */}
+          {filter === "archive" && counts.archive > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowClearArchiveDialog(true)}
+              className="inline-flex items-center gap-1.5 border border-rose-500/30 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-colors duration-150 cursor-pointer shadow-2xs"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Empty archive ({counts.archive})
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Error banner */}
+      {errorMessage && (
+        <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-500">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {errorMessage}
+        </div>
+      )}
+
+      {/* Task list */}
+      {loading ? (
+        <div className="py-12 text-center">
+          <p className="text-xs text-muted-foreground">Reading your workspace tasks...</p>
+        </div>
+      ) : sortedTasks.length === 0 ? (
+        <div className="border border-dashed border-border rounded-2xl p-14 text-center space-y-2 bg-card/40">
+          <div className="animate-gentle-float inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-muted mb-2">
+            {filter === "today" ? (
+              <Sun className="h-6 w-6 text-amber-500" />
+            ) : filter === "recovery" ? (
+              <Leaf className="h-6 w-6 text-emerald-500" />
+            ) : filter === "completed" ? (
+              <Cat className="h-6 w-6 text-primary" strokeWidth={1.5} />
+            ) : filter === "archive" ? (
+              <Archive className="h-6 w-6 text-muted-foreground" />
+            ) : (
+              <Inbox className="h-6 w-6 text-muted-foreground" />
+            )}
+          </div>
+          <p className="text-sm font-semibold text-foreground">
+            {filter === "today"
+              ? "Your day is clear"
+              : filter === "recovery"
+              ? "Nothing needs rescuing"
+              : filter === "completed"
+              ? "No completed tasks yet"
+              : filter === "archive"
+              ? "No archived tasks"
+              : "Nothing here yet"}
+          </p>
+          <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+            {filter === "today"
+              ? "Move a task from Inbox when you are ready to make room for it."
+              : filter === "archive"
+              ? "When you clear completed tasks, they are safely stored here so you can restore them anytime."
+              : "Capture a task above whenever it comes to mind."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {sortedTasks.map((task) => {
+            const isExpanded = expandedTaskIds.has(task.id);
+            const subtasks = subtasksMap[task.id] || [];
+            const isCompleting = completingTaskIds.has(task.id);
+            const isDeparting = departingTaskIds.has(task.id);
+            const project = task.project_id ? projectsMap.get(task.project_id) : undefined;
+
+            return (
+              <TaskItem
+                key={task.id}
+                task={task}
+                isExpanded={isExpanded}
+                onToggleExpand={() => toggleExpandTask(task.id)}
+                onToggleComplete={() => void handleToggleTask(task)}
+                isCompleting={isCompleting}
+                isDeparting={isDeparting}
+                subtasks={subtasks}
+                onLoadSubtasks={() => void loadSubtasks(task.id)}
+                onCreateSubtask={(title) => handleCreateSubtask(task.id, title)}
+                onToggleSubtask={(subtaskId) => handleToggleSubtask(task.id, subtaskId)}
+                onDeleteSubtask={(subtaskId) => handleDeleteSubtask(task.id, subtaskId)}
+                onSaveEdits={(edits) => handleSaveTaskEdits(task, edits)}
+                onUpdatePriority={(priority) => handleUpdatePriority(task.id, priority)}
+                onUpdateDueDate={(dueDateStr) => handleUpdateDueDate(task.id, dueDateStr)}
+                onSetForToday={() => void setTaskForToday(task.id)}
+                onReturnToInbox={() => void setTaskStatus(task.id, "inbox", "Couldn't return to Inbox")}
+                onArchiveTask={() => void setTaskStatus(task.id, "archived", "Couldn't archive task")}
+                onRestoreTask={() => void handleRestoreTask(task.id)}
+                onDeleteTask={() => void handleDeleteTask(task.id)}
+                projectName={project?.name}
+                projectColor={project?.color}
+                isArchiveView={filter === "archive"}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* Clear Completed Dialog with Animated Cat Helper mounted via Portal to document.body */}
+      {showClearDialog &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-backdrop-in p-4 select-none"
+            onClick={() => {
+              if (!clearingCompleted) setShowClearDialog(false);
+            }}
+          >
+            <div
+              className="bg-card border border-border rounded-3xl p-7 shadow-2xl max-w-sm w-full space-y-5 animate-dialog-in text-center relative overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Cozy Unboxed Stage with Cat & Celebratory Pop Finish */}
+              <div className="relative mx-auto w-32 h-28 flex items-center justify-center">
+                {/* Soft floor glow circle */}
+                <div
+                  className={cn(
+                    "absolute bottom-2 inset-x-4 h-6 rounded-full bg-primary/10 transition-all duration-500 blur-xs",
+                    clearingCompleted && "bg-primary/25 scale-125"
+                  )}
+                />
+
+                {/* Sweeping Dust Swirl Particles (active during initial sweeps) */}
+                {clearingCompleted && (
+                  <>
+                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center animate-dust-swirl">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary/40 absolute -top-1 -left-2" />
+                      <span className="w-2 h-2 rounded-full bg-muted-foreground/30 absolute bottom-3 -right-3" />
+                      <span className="w-1 h-1 rounded-full bg-primary/60 absolute top-5 -right-1" />
+                    </div>
+
+                    {/* Pop sparkles that burst outward near completion */}
+                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center animate-cat-pop-burst">
+                      <Sparkles className="h-4 w-4 text-amber-400 absolute -top-3 right-0" />
+                      <Sparkles className="h-3.5 w-3.5 text-pink-400 absolute -bottom-1 -left-3" />
+                      <Sparkles className="h-3 w-3 text-emerald-400 absolute top-1 -left-4" />
+                    </div>
+                  </>
+                )}
+
+                {/* Spring-animated Cat SVG stroke icon with clean floor shadow */}
+                <div
+                  className={cn(
+                    "relative z-10 transition-transform duration-300 ease-bounce flex flex-col items-center",
+                    clearingCompleted ? "animate-cat-sweep" : "animate-gentle-float"
+                  )}
+                >
+                  <Cat className="h-16 w-16 text-primary drop-shadow-sm" strokeWidth={1.5} />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <h3 className="text-base font-semibold tracking-tight text-foreground">
+                  {clearingCompleted ? "Tidying up workspace…" : "Clear completed tasks?"}
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed px-2">
+                  {clearingCompleted
+                    ? "A cozy helper is sweeping away finished tasks into your archive history."
+                    : `This will archive ${counts.completed} completed ${
+                        counts.completed === 1 ? "task" : "tasks"
+                      }. You can view and restore them anytime in the Archive & History tab.`}
+                </p>
+              </div>
+
+              {!clearingCompleted ? (
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowClearDialog(false)}
+                    className="flex-1 py-2 px-3 rounded-xl border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    Keep them
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleClearCompleted()}
+                    className="flex-1 py-2 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
+                  >
+                    Clear them
+                  </button>
+                </div>
+              ) : (
+                <div className="pt-2 flex items-center justify-center gap-1.5 text-xs text-primary font-medium">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+                  <span>Sweeping clean…</span>
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* Clear Archive Confirmation Dialog mounted via Portal */}
+      {showClearArchiveDialog &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-backdrop-in p-4 select-none"
+            onClick={() => {
+              if (!clearingArchive) setShowClearArchiveDialog(false);
+            }}
+          >
+            <div
+              className="bg-card border border-border rounded-3xl p-7 shadow-2xl max-w-sm w-full space-y-5 animate-dialog-in text-center relative overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto shadow-xs">
+                <Trash2 className="h-6 w-6" />
+              </div>
+
+              <div className="space-y-1.5">
+                <h3 className="text-base font-semibold tracking-tight text-foreground">
+                  Empty archive history?
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed px-2">
+                  This will permanently delete all <strong className="text-foreground font-semibold">{counts.archive}</strong> archived{" "}
+                  {counts.archive === 1 ? "task" : "tasks"} and their checklist steps from your database. This action cannot be undone.
+                </p>
+              </div>
+
+              {!clearingArchive ? (
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowClearArchiveDialog(false)}
+                    className="flex-1 py-2 px-3 rounded-xl border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+                  >
+                    Keep archive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleClearArchive()}
+                    className="flex-1 py-2 px-3 rounded-xl bg-rose-600 text-white hover:bg-rose-700 text-xs font-medium transition-colors cursor-pointer shadow-xs"
+                  >
+                    Permanently delete
+                  </button>
+                </div>
+              ) : (
+                <div className="pt-2 flex items-center justify-center gap-1.5 text-xs text-rose-500 font-medium">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                  <span>Emptying archive…</span>
+                </div>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  );
 };

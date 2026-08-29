@@ -1,81 +1,361 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 220 20% 98%;
-    --foreground: 220 25% 15%;
+    color-scheme: light;
 
-    --card: 0 0% 100%;
-    --card-foreground: 220 25% 15%;
+    --background: 36 18% 96%;
+    --foreground: 25 20% 14%;
 
-    --primary: 220 25% 20%;
-    --primary-foreground: 210 40% 98%;
+    --card: 36 20% 99%;
+    --card-foreground: 25 20% 14%;
 
-    --secondary: 220 15% 92%;
-    --secondary-foreground: 220 25% 20%;
+    --primary: 349 28% 52%;
+    --primary-foreground: 0 0% 100%;
 
-    --muted: 220 15% 94%;
-    --muted-foreground: 220 10% 46%;
+    --secondary: 34 16% 91%;
+    --secondary-foreground: 25 20% 22%;
 
-    --accent: 215 30% 90%;
-    --accent-foreground: 220 25% 15%;
+    --muted: 34 14% 93%;
+    --muted-foreground: 28 10% 50%;
 
-    --border: 220 15% 88%;
-    --input: 220 15% 88%;
-    --ring: 220 25% 20%;
+    --accent: 349 22% 90%;
+    --accent-foreground: 349 28% 38%;
 
-    --radius: 0.65rem;
+    --border: 30 14% 87%;
+    --input: 30 14% 87%;
+    --ring: 349 28% 52%;
+
+    --sidebar: 30 16% 94%;
+    --sidebar-border: 30 14% 88%;
+
+    --radius: 0.55rem;
   }
 
   .dark {
-    --background: 224 25% 9%;
-    --foreground: 210 20% 94%;
+    color-scheme: dark;
 
-    --card: 224 25% 12%;
-    --card-foreground: 210 20% 94%;
+    --background: 22 16% 10%;
+    --foreground: 36 14% 90%;
 
-    --primary: 210 20% 94%;
-    --primary-foreground: 224 25% 9%;
+    --card: 22 16% 13%;
+    --card-foreground: 36 14% 90%;
 
-    --secondary: 224 20% 18%;
-    --secondary-foreground: 210 20% 94%;
+    --primary: 349 30% 60%;
+    --primary-foreground: 22 16% 10%;
 
-    --muted: 224 20% 16%;
-    --muted-foreground: 217 10% 60%;
+    --secondary: 22 14% 18%;
+    --secondary-foreground: 36 14% 85%;
 
-    --accent: 224 20% 20%;
-    --accent-foreground: 210 20% 94%;
+    --muted: 22 14% 16%;
+    --muted-foreground: 30 8% 52%;
 
-    --border: 224 20% 18%;
-    --input: 224 20% 18%;
-    --ring: 216 20% 75%;
+    --accent: 349 18% 22%;
+    --accent-foreground: 349 30% 72%;
+
+    --border: 22 14% 20%;
+    --input: 22 14% 20%;
+    --ring: 349 30% 60%;
+
+    --sidebar: 22 16% 8%;
+    --sidebar-border: 22 14% 16%;
   }
 }
 
-body {
-  @apply bg-background text-foreground antialiased selection:bg-accent selection:text-accent-foreground;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  user-select: none;
-  overflow: hidden;
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-accent selection:text-accent-foreground;
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    overflow: hidden;
+  }
 }
 
+/* ─── Themed Date Inputs & Native Pickers ─────────────────────────── */
+input[type="date"] {
+  font-family: 'Geist', sans-serif;
+  color-scheme: light;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.dark input[type="date"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.6;
+  border-radius: 4px;
+  padding: 2px;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
+}
+
+/* ─── Task checkbox smooth pop ────────────────────────────────────── */
 @keyframes task-check-pop {
-  0% { transform: scale(0.72); opacity: 0.35; }
-  65% { transform: scale(1.14); opacity: 1; }
+  0%   { transform: scale(0.8); opacity: 0.4; }
+  60%  { transform: scale(1.08); opacity: 1; }
   100% { transform: scale(1); }
 }
 
-@keyframes cat-tidy {
-  0%, 100% { transform: translateX(-10px) rotate(-4deg); }
-  50% { transform: translateX(10px) rotate(4deg); }
+/* ─── Cat sweeping rhythm with satisfying celebration pop at the end ─ */
+@keyframes cat-cleaning-sweep {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1);
+    filter: drop-shadow(0 0 0px transparent);
+  }
+  16% {
+    transform: translateX(-20px) translateY(8px) rotate(-16deg) scale(0.96);
+  }
+  38% {
+    transform: translateX(22px) translateY(-3px) rotate(18deg) scale(1.04);
+  }
+  56% {
+    transform: translateX(-14px) translateY(8px) rotate(-14deg) scale(0.97);
+  }
+  72% {
+    transform: translateX(12px) translateY(-1px) rotate(12deg) scale(1.02);
+  }
+  80% {
+    /* Crouch anticipation */
+    transform: translateX(0px) translateY(4px) rotate(0deg) scale(0.92);
+    filter: drop-shadow(0 0 0px transparent);
+  }
+  88% {
+    /* 💥 The Satisfying Celebration POP! */
+    transform: translateX(0px) translateY(-16px) rotate(4deg) scale(1.28);
+    filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.6));
+  }
+  94% {
+    /* Soft bounce landing */
+    transform: translateX(0px) translateY(2px) rotate(-1deg) scale(0.98);
+    filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.3));
+  }
+  100% {
+    /* Proud, calm finish */
+    transform: translateY(0) rotate(0deg) scale(1);
+    filter: drop-shadow(0 0 0px transparent);
+  }
 }
 
-.animate-task-check { animation: task-check-pop 320ms ease-out; }
-.animate-cat-tidy { animation: cat-tidy 420ms ease-in-out infinite; }
+/* ─── Celebratory Star Burst on Cat Pop ──────────────────────────── */
+@keyframes cat-pop-star-burst {
+  0%, 75% {
+    opacity: 0;
+    transform: scale(0.3) rotate(0deg);
+  }
+  88% {
+    opacity: 1;
+    transform: scale(1.25) rotate(45deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6) translateY(-10px) rotate(90deg);
+  }
+}
+
+/* ─── Sweeping broom/dust swirl ──────────────────────────────────── */
+@keyframes broom-dust-swirl {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) rotate(-20deg);
+  }
+  25% {
+    opacity: 0.8;
+    transform: scale(1.1) translateX(-14px) rotate(15deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.2) translateX(16px) rotate(-15deg);
+  }
+  85% {
+    opacity: 0.7;
+    transform: scale(1.3) translateY(-8px) rotate(25deg);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.4) translateY(-14px) rotate(40deg);
+  }
+}
+
+/* ─── Cat idle wiggle ────────────────────────────────────────────── */
+@keyframes cat-tidy {
+  0%, 100% { transform: translateX(-8px) translateY(0) rotate(-4deg); }
+  25%      { transform: translateX(-2px) translateY(-2px) rotate(-1deg); }
+  50%      { transform: translateX(8px) translateY(0) rotate(4deg); }
+  75%      { transform: translateX(2px) translateY(-2px) rotate(1deg); }
+}
+
+/* ─── Task card silhouettes vanish smoothly ──────────────────────── */
+@keyframes task-card-vanish {
+  0%   { opacity: 1; transform: scale(1) translateY(0); }
+  100% { opacity: 0; transform: scale(0.85) translateY(6px); }
+}
+
+/* ─── Sparkle burst particles ────────────────────────────────────── */
+@keyframes sparkle-pop {
+  0%   { opacity: 0; transform: scale(0); }
+  50%  { opacity: 0.9; transform: scale(1.1); }
+  100% { opacity: 0; transform: scale(0.6); }
+}
+
+/* ─── Smooth fade-in-up ──────────────────────────────────────────── */
+@keyframes fade-in-up {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Smooth fade-in ─────────────────────────────────────────────── */
+@keyframes fade-in {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* ─── Achievement toast smooth slide-in ──────────────────────────── */
+@keyframes achievement-slide-in {
+  0%   { opacity: 0; transform: translateX(24px) scale(0.96); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* ─── Achievement toast exit ─────────────────────────────────────── */
+@keyframes achievement-slide-out {
+  0%   { opacity: 1; transform: translateX(0) scale(1); }
+  100% { opacity: 0; transform: translateX(20px) scale(0.96); }
+}
+
+/* ─── Gentle float for empty states ──────────────────────────────── */
+@keyframes gentle-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+
+/* ─── Dialog smooth entry ────────────────────────────────────────── */
+@keyframes dialog-smooth-in {
+  0%   { opacity: 0; transform: scale(0.97) translateY(4px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ─── Backdrop smooth fade-in ────────────────────────────────────── */
+@keyframes backdrop-fade {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* ─── Task drawer smooth drop-down accordion ─────────────────────── */
+@keyframes task-drawer-expand {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.98);
+    transform-origin: top;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+    transform-origin: top;
+  }
+}
+
+/* ─── Celebratory Checkbox Pop & Glow ────────────────────────────── */
+@keyframes task-complete-glow {
+  0% {
+    transform: scale(0.7);
+    filter: drop-shadow(0 0 0px rgba(16, 185, 129, 0));
+  }
+  50% {
+    transform: scale(1.22);
+    filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.7));
+  }
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 3px rgba(16, 185, 129, 0.3));
+  }
+}
+
+/* ─── Task Card Graceful Exit (Collapse & Slide) ─────────────────── */
+@keyframes task-card-depart {
+  0% {
+    opacity: 1;
+    max-height: 180px;
+    transform: translateX(0) scale(1);
+    margin-bottom: 0.5rem;
+  }
+  35% {
+    opacity: 0.5;
+    transform: translateX(10px) scale(0.98);
+    max-height: 180px;
+  }
+  100% {
+    opacity: 0;
+    max-height: 0px;
+    transform: translateX(24px) scale(0.92);
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-color: transparent;
+  }
+}
+
+/* ═══ Utility Classes ═══════════════════════════════════════════════ */
+
+.animate-task-check       { animation: task-check-pop 240ms cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-task-glow        { animation: task-complete-glow 380ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-task-depart      { animation: task-card-depart 380ms cubic-bezier(0.16, 1, 0.3, 1) forwards; overflow: hidden !important; pointer-events: none; }
+.animate-cat-tidy         { animation: cat-tidy 420ms ease-in-out infinite; }
+.animate-cat-sweep        { animation: cat-cleaning-sweep 1400ms cubic-bezier(0.25, 1, 0.5, 1) both; }
+.animate-cat-pop-burst    { animation: cat-pop-star-burst 1400ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-dust-swirl       { animation: broom-dust-swirl 1400ms ease-in-out both; }
+.animate-task-vanish      { animation: task-card-vanish 450ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-sparkle          { animation: sparkle-pop 550ms ease-out forwards; }
+.animate-smooth-in        { animation: fade-in-up 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-drawer-down      { animation: task-drawer-expand 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-fade-in          { animation: fade-in 180ms ease-out both; }
+.animate-achievement-in   { animation: achievement-slide-in 350ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-achievement-out  { animation: achievement-slide-out 250ms ease-in both; }
+.animate-gentle-float     { animation: gentle-float 4s ease-in-out infinite; }
+.animate-dialog-in        { animation: dialog-smooth-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-backdrop-in      { animation: backdrop-fade 200ms ease-out both; }
+
+/* Smooth timing utility */
+.ease-smooth { transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
 
 @media (prefers-reduced-motion: reduce) {
   .animate-task-check,
-  .animate-cat-tidy { animation: none; }
+  .animate-cat-tidy,
+  .animate-cat-sweep,
+  .animate-task-vanish,
+  .animate-sparkle,
+  .animate-smooth-in,
+  .animate-fade-in,
+  .animate-achievement-in,
+  .animate-achievement-out,
+  .animate-gentle-float,
+  .animate-dialog-in,
+  .animate-backdrop-in { animation: none; }
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
 }
