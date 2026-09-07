@@ -15,6 +15,8 @@ import {
   Cat,
   LayoutGrid,
   Columns2,
+  Columns3,
+  List,
   Camera,
   BookOpen,
   Circle,
@@ -32,6 +34,7 @@ import { DatePicker } from "../ui/DatePicker";
 import { playTaskPopSound, playSweepSound } from "../../lib/sound";
 import type { Task, Subtask } from "../tasks/TasksView";
 import { TaskItem } from "../tasks/TaskItem";
+import { KanbanBoard } from "../kanban/KanbanBoard";
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. TYPES & DATA INTERFACES
@@ -408,7 +411,7 @@ const QuickColorPicker: React.FC<QuickColorPickerProps> = ({
 }) => {
   return createPortal(
     <div
-      className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-backdrop-in select-none"
+      className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-backdrop-in select-none"
       onClick={onClose}
     >
       <div
@@ -556,7 +559,7 @@ export const CoverPickerModal: React.FC<CoverPickerModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-backdrop-in select-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-backdrop-in select-none"
       onClick={onClose}
     >
       <div
@@ -1146,6 +1149,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   );
   const [projectListFilter, setProjectListFilter] = useState<"active" | "completed" | "all">("active");
   const [taskFilter, setTaskFilter] = useState<"all" | "open" | "completed">("all");
+  const [projectTaskView, setProjectTaskView] = useState<"list" | "kanban">("list");
   const [searchQuery, setSearchQuery] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -1967,7 +1971,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             >
                               {proj.name}
                             </p>
-                            <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1 py-0.2 rounded border border-border/50 shrink-0">
+                            <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1 py-px rounded border border-border/50 shrink-0">
                               {pCompleted}/{pTasks.length}
                             </span>
                           </div>
@@ -2192,7 +2196,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     ))}
                   </div>
 
-                  {completedCount > 0 && (
+                    {completedCount > 0 && (
                     <button
                       type="button"
                       onClick={() => setShowClearProjectDialog(true)}
@@ -2203,9 +2207,58 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                       <span>Clear completed ({completedCount})</span>
                     </button>
                   )}
+
+                  {/* Project Task View Mode Toggle */}
+                  <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playTaskPopSound();
+                        setProjectTaskView("list");
+                      }}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer",
+                        projectTaskView === "list"
+                          ? "bg-background shadow-xs text-foreground font-semibold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      title="Project List View"
+                    >
+                      <List className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">List</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playTaskPopSound();
+                        setProjectTaskView("kanban");
+                      }}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer",
+                        projectTaskView === "kanban"
+                          ? "bg-background shadow-xs text-foreground font-semibold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      title="Project Kanban Board"
+                    >
+                      <Columns3 className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Kanban</span>
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6 space-y-2.5">
+                {projectTaskView === "kanban" ? (
+                  <div className="flex-1 overflow-y-auto p-6">
+                    <KanbanBoard
+                      tasks={tasks}
+                      projects={projects}
+                      workspaceId={workspaceId}
+                      projectIdFilter={selectedProject.id}
+                      onTasksChanged={() => void loadData()}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto p-6 space-y-2.5">
                   {filteredProjectTasks.length === 0 ? (
                     <div className="py-16 text-center text-xs text-muted-foreground space-y-2">
                       <div className="inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-muted text-muted-foreground">
@@ -2250,6 +2303,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     })
                   )}
                 </div>
+                )}
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4">
@@ -2301,11 +2355,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       {showNewModal &&
         createPortal(
           <div
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-backdrop-in select-none"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-backdrop-in select-none"
             onClick={() => setShowNewModal(false)}
           >
             <div
-              className="bg-card border border-border rounded-3xl p-6 shadow-2xl max-w-lg w-full space-y-5 animate-dialog-in max-h-[90vh] overflow-y-auto"
+              className="bg-card border border-border rounded-2xl p-6 shadow-2xl max-w-lg w-full space-y-5 animate-dialog-in max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-border/50 pb-3">
@@ -2457,11 +2511,11 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       {editingProject &&
         createPortal(
           <div
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-backdrop-in select-none"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-backdrop-in select-none"
             onClick={() => setEditingProject(null)}
           >
             <div
-              className="bg-card border border-border rounded-3xl p-6 shadow-2xl max-w-lg w-full space-y-5 animate-dialog-in max-h-[90vh] overflow-y-auto"
+              className="bg-card border border-border rounded-2xl p-6 shadow-2xl max-w-lg w-full space-y-5 animate-dialog-in max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b border-border/50 pb-3">
@@ -2645,13 +2699,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
       {showClearProjectDialog &&
         createPortal(
           <div
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-backdrop-in p-4 select-none"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-backdrop-in p-4 select-none"
             onClick={() => {
               if (!clearingCompleted) setShowClearProjectDialog(false);
             }}
           >
             <div
-              className="bg-card border border-border rounded-3xl p-7 shadow-2xl max-w-sm w-full space-y-5 animate-dialog-in text-center relative overflow-hidden"
+              className="bg-card border border-border rounded-2xl p-7 shadow-dialog max-w-sm w-full space-y-5 animate-dialog-in text-center relative overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="relative mx-auto w-32 h-28 flex items-center justify-center">

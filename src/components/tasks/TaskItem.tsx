@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronRight,
   CheckCircle2,
@@ -10,11 +11,30 @@ import {
   CheckSquare,
   Square,
   FolderKanban,
+  Sparkles,
+  Loader2,
+  KeyRound,
+  X,
+  ExternalLink,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { DatePicker } from "../ui/DatePicker";
 import type { Task, Subtask } from "./TasksView";
 import { getProjectColorDef } from "../projects/ProjectsView";
+import { deconstructWithSammi } from "../../lib/ai/engine";
+import { getAiConfig, saveAiConfig } from "../../lib/ai/storage";
+import { playTaskPopSound } from "../../lib/sound";
+
+async function openExternalUrl(url: string) {
+  try {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url);
+  } catch {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
 
 export interface TaskItemProps {
   task: Task;
@@ -67,7 +87,7 @@ export const priorityColor = (priority: Task["priority"]) =>
   ({
     urgent: "text-rose-600 dark:text-rose-400 bg-rose-500/10 border-rose-500/30",
     high: "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/30",
-    medium: "text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/30",
+    medium: "text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 border-indigo-500/30",
     low: "text-slate-500 dark:text-slate-400 bg-slate-500/10 border-slate-500/30",
   }[priority]);
 
@@ -102,6 +122,71 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   const [editNextAction, setEditNextAction] = useState(task.next_action ?? "");
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeconstructing, setIsDeconstructing] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [tempApiKey, setTempApiKey] = useState("");
+  const [deconstructFeedback, setDeconstructFeedback] = useState<string | null>(null);
+
+  const executeDeconstruct = async (cfgToUse?: ReturnType<typeof getAiConfig>) => {
+    setIsDeconstructing(true);
+    setDeconstructFeedback(null);
+    try {
+      const cfg = cfgToUse || getAiConfig();
+      const res = await deconstructWithSammi(
+        task.title,
+        task.description,
+        cfg
+      );
+
+      if (res.steps && res.steps.length > 0) {
+        for (const step of res.steps) {
+          await onCreateSubtask(step);
+        }
+        playTaskPopSound();
+        const sourceLabel =
+          res.source === "gemini"
+            ? `Deconstructed with Sammi (${res.model || "Gemini"})`
+            : res.source === "ollama"
+            ? `Deconstructed with Sammi (${res.model || "Ollama"})`
+            : "Deconstructed via Offline Engine";
+        setDeconstructFeedback(sourceLabel);
+        setTimeout(() => setDeconstructFeedback(null), 3500);
+      }
+    } catch (err) {
+      console.error("Failed to deconstruct task with Sammi:", err);
+      setDeconstructFeedback("Deconstruct failed. Please check AI settings.");
+      setTimeout(() => setDeconstructFeedback(null), 3500);
+    } finally {
+      setIsDeconstructing(false);
+    }
+  };
+
+  const handleDeconstructClick = () => {
+    const cfg = getAiConfig();
+    if (cfg.provider === "gemini" && !cfg.geminiApiKey?.trim()) {
+      setShowApiKeyModal(true);
+      return;
+    }
+    void executeDeconstruct(cfg);
+  };
+
+  const handleSaveKeyAndDeconstruct = () => {
+    const key = tempApiKey.trim();
+    if (!key) return;
+    const cfg = getAiConfig();
+    const updated = { ...cfg, provider: "gemini" as const, geminiApiKey: key };
+    saveAiConfig(updated);
+    setShowApiKeyModal(false);
+    setTempApiKey("");
+    void executeDeconstruct(updated);
+  };
+
+  const handleUseOfflineFallback = () => {
+    const cfg = getAiConfig();
+    setShowApiKeyModal(false);
+    void executeDeconstruct({ ...cfg, provider: "offline" });
+  };
 
   // Sync edits when task updates
   useEffect(() => {
@@ -432,15 +517,40 @@ export const TaskItem: React.FC<TaskItemProps> = ({
 
               {/* Subtasks Checklist */}
               <div className="pt-2 border-t border-border/60 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-semibold text-foreground">
-                    Checklist & Steps {subtasks.length > 0 && `(${completedSubtasks}/${subtasks.length})`}
-                  </p>
-                  {subtasks.length > 0 && (
-                    <span className="text-[10px] font-mono text-muted-foreground">
-                      {Math.round((completedSubtasks / subtasks.length) * 100)}%
-                    </span>
-                  )}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-semibold text-foreground">
+                      Checklist & Steps {subtasks.length > 0 && `(${completedSubtasks}/${subtasks.length})`}
+                    </p>
+                    {deconstructFeedback && (
+                      <span className="text-[10px] text-primary font-medium animate-fade-in">
+                        {deconstructFeedback}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleDeconstructClick()}
+                      disabled={isDeconstructing}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-primary/10 text-primary hover:bg-primary/20 border border-primary/25 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
+                      title="Deconstruct goal into subtasks with Sammi AI"
+                    >
+                      {isDeconstructing ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3 w-3 text-primary" />
+                      )}
+                      <span>{isDeconstructing ? "Sammi is thinking…" : "Deconstruct with Sammi"}</span>
+                    </button>
+
+                    {subtasks.length > 0 && (
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        {Math.round((completedSubtasks / subtasks.length) * 100)}%
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {subtasks.length > 0 && (
@@ -547,6 +657,94 @@ export const TaskItem: React.FC<TaskItemProps> = ({
             </div>
           )}
         </div>
+      {showApiKeyModal &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in select-none"
+            onClick={() => setShowApiKeyModal(false)}
+          >
+            <div
+              className="w-full max-w-md bg-card border border-border rounded-2xl p-6 shadow-dialog space-y-4 animate-dialog-in"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                <div className="flex items-center gap-2 text-foreground font-bold text-sm">
+                  <KeyRound className="h-4 w-4 text-primary" />
+                  <span>Connect Gemini API Key for Sammi</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowApiKeyModal(false)}
+                  className="p-1 rounded-lg text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Sammi uses Google Gemini cloud intelligence to deconstruct your task into customized, sequential subtasks. Enter your free API key to unlock full generative reasoning.
+              </p>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-foreground">Google Gemini API Key</label>
+                <div className="relative">
+                  <input
+                    type={showApiKey ? "text" : "password"}
+                    value={tempApiKey}
+                    onChange={(e) => setTempApiKey(e.target.value)}
+                    placeholder="AIzaSy..."
+                    className="w-full bg-muted/40 border border-border rounded-xl pl-3 pr-9 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 font-mono focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer p-1"
+                    title={showApiKey ? "Hide API key" : "Show API key"}
+                    aria-label={showApiKey ? "Hide API key" : "Show API key"}
+                  >
+                    {showApiKey ? (
+                      <EyeOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <Eye className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={() => void openExternalUrl("https://aistudio.google.com/apikey")}
+                  className="text-[11px] text-primary hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                >
+                  <span>Get free key (Google AI Studio)</span>
+                  <ExternalLink className="h-3 w-3" />
+                </button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-2 border-t border-border/60">
+                <button
+                  type="button"
+                  onClick={handleUseOfflineFallback}
+                  className="px-3 py-1.5 rounded-xl border border-border bg-muted/40 text-muted-foreground hover:text-foreground text-xs font-medium cursor-pointer"
+                >
+                  Use Offline Heuristics
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveKeyAndDeconstruct}
+                  disabled={!tempApiKey.trim()}
+                  className="px-4 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5 shadow-xs"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Save & Deconstruct</span>
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
       </div>
     </div>
   );

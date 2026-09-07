@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 pub type DbPool = SqlitePool;
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
 pub struct Workspace {
     pub id: String,
     pub name: String,
@@ -17,7 +17,7 @@ pub struct Workspace {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
 pub struct SettingItem {
     pub key: String,
     pub value: String,
@@ -54,6 +54,7 @@ pub struct Task {
     pub archived_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
+    pub position: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
@@ -78,6 +79,51 @@ pub struct Note {
     pub color: String,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DatabaseStats {
+    pub file_path: String,
+    pub file_size_bytes: u64,
+    pub workspaces_count: i64,
+    pub tasks_count: i64,
+    pub subtasks_count: i64,
+    pub projects_count: i64,
+    pub notes_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackupFileInfo {
+    pub file_name: String,
+    pub file_path: String,
+    pub file_size_bytes: u64,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TaskWithSubtasks {
+    #[serde(flatten)]
+    pub task: Task,
+    pub subtasks: Vec<Subtask>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FullWorkspaceExport {
+    pub version: String,
+    pub exported_at: i64,
+    pub workspace: Option<Workspace>,
+    pub projects: Vec<Project>,
+    pub tasks: Vec<TaskWithSubtasks>,
+    pub notes: Vec<Note>,
+}
+
+#[derive(Clone)]
+pub struct AppDataPath(pub PathBuf);
+
+impl AppDataPath {
+    pub fn path(&self) -> &std::path::Path {
+        &self.0
+    }
 }
 
 pub async fn init_db(app_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Error>> {
@@ -125,6 +171,11 @@ pub async fn init_db(app_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Err
             updated_at INTEGER NOT NULL
         )"
     ).execute(&pool).await;
+
+    // Safety assertion for tasks position column
+    let _ = sqlx::query("ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+        .execute(&pool)
+        .await;
 
     Ok(pool)
 }

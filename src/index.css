@@ -14,6 +14,9 @@
     --card: 36 20% 99%;
     --card-foreground: 25 20% 14%;
 
+    --popover: 36 20% 99%;
+    --popover-foreground: 25 20% 14%;
+
     --primary: 349 28% 52%;
     --primary-foreground: 0 0% 100%;
 
@@ -44,6 +47,9 @@
 
     --card: 22 16% 13%;
     --card-foreground: 36 14% 90%;
+
+    --popover: 22 16% 13%;
+    --popover-foreground: 36 14% 90%;
 
     --primary: 349 30% 60%;
     --primary-foreground: 22 16% 10%;
@@ -138,7 +144,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     filter: drop-shadow(0 0 0px transparent);
   }
   88% {
-    /* 💥 The Satisfying Celebration POP! */
+    /* The Satisfying Celebration POP! */
     transform: translateX(0px) translateY(-16px) rotate(4deg) scale(1.28);
     filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.6));
   }
@@ -257,6 +263,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   100% { opacity: 1; }
 }
 
+/* ─── Scale-in for popovers & dropdowns ─────────────────────────── */
+@keyframes scale-smooth-in {
+  0%   { opacity: 0; transform: scale(0.96); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
 /* ─── Task drawer smooth drop-down accordion ─────────────────────── */
 @keyframes task-drawer-expand {
   0% {
@@ -330,6 +342,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .animate-achievement-out  { animation: achievement-slide-out 250ms ease-in both; }
 .animate-gentle-float     { animation: gentle-float 4s ease-in-out infinite; }
 .animate-dialog-in        { animation: dialog-smooth-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-scale-in         { animation: scale-smooth-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 .animate-backdrop-in      { animation: backdrop-fade 200ms ease-out both; }
 
 /* Smooth timing utility */
@@ -347,10 +360,11 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .animate-achievement-out,
   .animate-gentle-float,
   .animate-dialog-in,
+  .animate-scale-in,
   .animate-backdrop-in { animation: none; }
 }
 
-::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: hsl(var(--border));
@@ -358,4 +372,62 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* ═══ Print Stylesheet (Clean Paper Formatting) ═════════════════════ */
+@media print {
+  /* Hide application shell chrome, navigation, actions, and floating tools */
+  aside,
+  header,
+  nav,
+  .no-print,
+  button,
+  input,
+  [role="dialog"],
+  .fixed,
+  .sticky {
+    display: none !important;
+  }
+
+  /* Reset layout constraints for natural multi-page document printing */
+  html,
+  body,
+  #root,
+  main,
+  #main-content {
+    overflow: visible !important;
+    height: auto !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 11pt !important;
+    line-height: 1.5 !important;
+  }
+
+  /* Preserve container structures and enforce page breaks */
+  .max-w-7xl,
+  .max-w-6xl,
+  .max-w-5xl,
+  .max-w-4xl {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Prevent awkward card slicing across paper page breaks */
+  article,
+  section,
+  .rounded-2xl,
+  .rounded-3xl,
+  table,
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Crisp monochrome print borders */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
 }

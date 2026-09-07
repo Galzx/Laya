@@ -1,7 +1,10 @@
 mod db;
 
-use db::{DbPool, Note, Project, SettingItem, Subtask, Task, Workspace};
-use serde::Serialize;
+use db::{
+    AppDataPath, BackupFileInfo, DatabaseStats, DbPool, FullWorkspaceExport, Note, Project,
+    SettingItem, Subtask, Task, TaskWithSubtasks, Workspace,
+};
+use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{Manager, State};
 use uuid::Uuid;
@@ -253,17 +256,19 @@ async fn assign_task_to_project(task_id: String, project_id: Option<String>, poo
 #[tauri::command]
 async fn get_tasks(workspace_id: String, pool: State<'_, DbPool>) -> Result<Vec<Task>, String> {
     sqlx::query_as::<_, Task>(
-        "SELECT id, workspace_id, project_id, title, description, status, priority, start_date, due_date, next_action, completed_at, archived_at, created_at, updated_at
+        "SELECT id, workspace_id, project_id, title, description, status, priority, start_date, due_date, next_action, completed_at, archived_at, created_at, updated_at, position
          FROM tasks 
          WHERE workspace_id = ? 
          ORDER BY 
            CASE status 
              WHEN 'in_progress' THEN 1
              WHEN 'todo' THEN 2
+             WHEN 'planned' THEN 2
              WHEN 'inbox' THEN 3
              WHEN 'completed' THEN 4
              ELSE 5
            END, 
+           COALESCE(position, 0) ASC,
            created_at DESC"
     )
     .bind(workspace_id)
@@ -294,8 +299,8 @@ async fn create_task(
     let status = if due_date.is_some() { "todo" } else { "inbox" }.to_string();
 
     sqlx::query(
-        "INSERT INTO tasks (id, workspace_id, project_id, title, description, status, priority, start_date, due_date, next_action, completed_at, archived_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)"
+        "INSERT INTO tasks (id, workspace_id, project_id, title, description, status, priority, start_date, due_date, next_action, completed_at, archived_at, created_at, updated_at, position)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 0)"
     )
     .bind(&id)
     .bind(&workspace_id)
@@ -328,6 +333,7 @@ async fn create_task(
         archived_at: None,
         created_at: now,
         updated_at: now,
+        position: Some(0),
     })
 }
 
@@ -371,28 +377,40 @@ async fn toggle_task_status(task_id: String, pool: State<'_, DbPool>) -> Result<
 
 #[tauri::command]
 async fn set_task_status(task_id: String, status: String, pool: State<'_, DbPool>) -> Result<Task, String> {
-    let valid_statuses = ["inbox", "todo", "in_progress", "completed", "archived"];
-    if !valid_statuses.contains(&status.as_str()) {
-        return Err("Invalid task status.".to_string());
-    }
+    let normalized = match status.as_str() {
+        "inbox" => "inbox",
+        "todo" | "planned" => "todo",
+        "in_progress" => "in_progress",
+        "waiting" => "waiting",
+        "completed" => "completed",
+        "archived" => "archived",
+        _ => return Err("Invalid task status.".to_string()),
+    };
 
     let now = current_timestamp();
-    let completed_at = if status == "completed" { Some(now) } else { None };
-    let archived_at = if status == "archived" { Some(now) } else { None };
+    let completed_at = if normalized == "completed" { Some(now) } else { None };
+    let archived_at = if normalized == "archived" { Some(now) } else { None };
 
     sqlx::query(
         "UPDATE tasks
          SET status = ?,
              completed_at = ?,
              archived_at = ?,
-             due_date = CASE WHEN ? = 'inbox' THEN NULL ELSE due_date END,
+             due_date = CASE 
+               WHEN ? = 'inbox' THEN NULL 
+               WHEN (? = 'todo' OR ? = 'in_progress') AND due_date IS NULL THEN ? 
+               ELSE due_date 
+             END,
              updated_at = ?
          WHERE id = ?"
     )
-    .bind(&status)
+    .bind(normalized)
     .bind(completed_at)
     .bind(archived_at)
-    .bind(&status)
+    .bind(normalized)
+    .bind(normalized)
+    .bind(normalized)
+    .bind(now)
     .bind(now)
     .bind(&task_id)
     .execute(&*pool)
@@ -404,6 +422,79 @@ async fn set_task_status(task_id: String, status: String, pool: State<'_, DbPool
         .fetch_one(&*pool)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TaskReorderItem {
+    pub id: String,
+    pub position: i64,
+    pub status: Option<String>,
+}
+
+#[tauri::command]
+async fn reorder_kanban_tasks(
+    items: Vec<TaskReorderItem>,
+    pool: State<'_, DbPool>,
+) -> Result<(), String> {
+    let now = current_timestamp();
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    for item in items {
+        if let Some(status) = item.status {
+            let normalized = match status.as_str() {
+                "inbox" => "inbox",
+                "todo" | "planned" => "todo",
+                "in_progress" => "in_progress",
+                "waiting" => "waiting",
+                "completed" => "completed",
+                "archived" => "archived",
+                _ => "todo",
+            };
+            let completed_at = if normalized == "completed" { Some(now) } else { None };
+            let archived_at = if normalized == "archived" { Some(now) } else { None };
+
+            sqlx::query(
+                "UPDATE tasks
+                 SET position = ?,
+                     status = ?,
+                     completed_at = ?,
+                     archived_at = ?,
+                     due_date = CASE 
+                       WHEN ? = 'inbox' THEN NULL 
+                       WHEN (? = 'todo' OR ? = 'in_progress') AND due_date IS NULL THEN ? 
+                       ELSE due_date 
+                     END,
+                     updated_at = ?
+                 WHERE id = ?"
+            )
+            .bind(item.position)
+            .bind(normalized)
+            .bind(completed_at)
+            .bind(archived_at)
+            .bind(normalized)
+            .bind(normalized)
+            .bind(normalized)
+            .bind(now)
+            .bind(now)
+            .bind(&item.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        } else {
+            sqlx::query(
+                "UPDATE tasks SET position = ?, updated_at = ? WHERE id = ?"
+            )
+            .bind(item.position)
+            .bind(now)
+            .bind(&item.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -901,6 +992,399 @@ async fn delete_note(note_id: String, pool: State<'_, DbPool>) -> Result<(), Str
     Ok(())
 }
 
+// ─── DATA BACKUP, EXPORT & RESTORE ───────────────────────────────────────
+
+#[tauri::command]
+async fn get_database_stats(
+    pool: State<'_, DbPool>,
+    app_dir: State<'_, AppDataPath>,
+) -> Result<DatabaseStats, String> {
+    let db_path = app_dir.path().join("laya.sqlite");
+    let file_size_bytes = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
+    let file_path = db_path.to_string_lossy().to_string();
+
+    let (tasks_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tasks")
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or((0,));
+    let (subtasks_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM subtasks")
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or((0,));
+    let (projects_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects")
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or((0,));
+    let (notes_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM notes")
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or((0,));
+    let (workspaces_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM workspaces")
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or((0,));
+
+    Ok(DatabaseStats {
+        file_path,
+        file_size_bytes,
+        workspaces_count,
+        tasks_count,
+        subtasks_count,
+        projects_count,
+        notes_count,
+    })
+}
+
+#[tauri::command]
+async fn create_database_backup(
+    pool: State<'_, DbPool>,
+    app_dir: State<'_, AppDataPath>,
+) -> Result<BackupFileInfo, String> {
+    let backups_dir = app_dir.path().join("backups");
+    if !backups_dir.exists() {
+        std::fs::create_dir_all(&backups_dir)
+            .map_err(|e| format!("Failed to create backups directory: {e}"))?;
+    }
+
+    let timestamp = current_timestamp();
+    let file_name = format!("laya-backup-{timestamp}.sqlite");
+    let backup_path = backups_dir.join(&file_name);
+    let backup_path_str = backup_path.to_string_lossy().to_string();
+
+    let query = format!("VACUUM INTO '{}'", backup_path_str.replace('\'', "''"));
+    sqlx::query(&query)
+        .execute(&*pool)
+        .await
+        .map_err(|e| format!("VACUUM INTO failed: {e}"))?;
+
+    let file_size_bytes = std::fs::metadata(&backup_path).map(|m| m.len()).unwrap_or(0);
+
+    Ok(BackupFileInfo {
+        file_name,
+        file_path: backup_path_str,
+        file_size_bytes,
+        created_at: timestamp,
+    })
+}
+
+#[tauri::command]
+fn list_database_backups(app_dir: State<'_, AppDataPath>) -> Result<Vec<BackupFileInfo>, String> {
+    let backups_dir = app_dir.path().join("backups");
+    if !backups_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut list = Vec::new();
+    let entries = std::fs::read_dir(&backups_dir).map_err(|e| e.to_string())?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+            let is_sqlite = path
+                .extension()
+                .map_or(false, |ext| ext == "sqlite" || ext == "db");
+            if is_sqlite {
+                let file_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let meta = entry.metadata().ok();
+                let file_size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                let created_at = meta
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+
+                list.push(BackupFileInfo {
+                    file_name,
+                    file_path: path.to_string_lossy().to_string(),
+                    file_size_bytes,
+                    created_at,
+                });
+            }
+        }
+    }
+
+    list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(list)
+}
+
+#[tauri::command]
+async fn restore_database_backup(
+    backup_file_path: String,
+    pool: State<'_, DbPool>,
+    app_dir: State<'_, AppDataPath>,
+) -> Result<String, String> {
+    let backup_path = std::path::Path::new(&backup_file_path);
+    if !backup_path.exists() {
+        return Err("Backup file does not exist.".to_string());
+    }
+
+    // 1. Create a safety pre-restore backup
+    let backups_dir = app_dir.path().join("backups");
+    if !backups_dir.exists() {
+        let _ = std::fs::create_dir_all(&backups_dir);
+    }
+    let safety_file = format!("laya-pre-restore-{}.sqlite", current_timestamp());
+    let safety_path = backups_dir.join(&safety_file);
+    let vacuum_query = format!(
+        "VACUUM INTO '{}'",
+        safety_path.to_string_lossy().replace('\'', "''")
+    );
+    let _ = sqlx::query(&vacuum_query).execute(&*pool).await;
+
+    // 2. Perform transactional restoration using ATTACH DATABASE
+    let escaped_backup = backup_file_path.replace('\'', "''");
+    let attach_sql = format!("ATTACH DATABASE '{}' AS backup_db", escaped_backup);
+    sqlx::query(&attach_sql)
+        .execute(&*pool)
+        .await
+        .map_err(|e| format!("Failed to attach backup database: {e}"))?;
+
+    let restore_result = async {
+        let _ = sqlx::query("PRAGMA foreign_keys = OFF").execute(&*pool).await;
+
+        let mut tx = pool.begin().await?;
+
+        sqlx::query("DELETE FROM subtasks").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM tasks").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM notes").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM projects").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM settings").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM workspaces").execute(&mut *tx).await?;
+
+        sqlx::query("INSERT INTO workspaces SELECT * FROM backup_db.workspaces").execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO settings SELECT * FROM backup_db.settings").execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO projects SELECT * FROM backup_db.projects").execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO tasks SELECT * FROM backup_db.tasks").execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO subtasks SELECT * FROM backup_db.subtasks").execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO notes SELECT * FROM backup_db.notes").execute(&mut *tx).await?;
+
+        tx.commit().await?;
+
+        let _ = sqlx::query("PRAGMA foreign_keys = ON").execute(&*pool).await;
+        Ok::<(), sqlx::Error>(())
+    }
+    .await;
+
+    let _ = sqlx::query("DETACH DATABASE backup_db").execute(&*pool).await;
+
+    restore_result.map_err(|e| format!("Database restore failed: {e}"))?;
+    Ok("Database restored successfully.".to_string())
+}
+
+#[tauri::command]
+fn delete_database_backup(backup_file_path: String) -> Result<(), String> {
+    let path = std::path::Path::new(&backup_file_path);
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|e| format!("Failed to delete backup: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_backups_folder(app_dir: State<'_, AppDataPath>) -> Result<(), String> {
+    let backups_dir = app_dir.path().join("backups");
+    if !backups_dir.exists() {
+        let _ = std::fs::create_dir_all(&backups_dir);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&backups_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&backups_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&backups_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn export_full_workspace_json(
+    workspace_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<FullWorkspaceExport, String> {
+    let workspace = sqlx::query_as::<_, Workspace>("SELECT * FROM workspaces WHERE id = ?")
+        .bind(&workspace_id)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let projects = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE workspace_id = ?")
+        .bind(&workspace_id)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let tasks = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE workspace_id = ?")
+        .bind(&workspace_id)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let subtasks = sqlx::query_as::<_, Subtask>(
+        "SELECT s.* FROM subtasks s JOIN tasks t ON s.task_id = t.id WHERE t.workspace_id = ?"
+    )
+    .bind(&workspace_id)
+    .fetch_all(&*pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let notes = sqlx::query_as::<_, Note>("SELECT * FROM notes WHERE workspace_id = ?")
+        .bind(&workspace_id)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut tasks_with_subs = Vec::new();
+    for task in tasks {
+        let subs = subtasks
+            .iter()
+            .filter(|s| s.task_id == task.id)
+            .cloned()
+            .collect();
+        tasks_with_subs.push(TaskWithSubtasks {
+            task,
+            subtasks: subs,
+        });
+    }
+
+    Ok(FullWorkspaceExport {
+        version: "1.0".to_string(),
+        exported_at: current_timestamp(),
+        workspace,
+        projects,
+        tasks: tasks_with_subs,
+        notes,
+    })
+}
+
+#[tauri::command]
+async fn import_full_workspace_json(
+    data: FullWorkspaceExport,
+    target_workspace_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<String, String> {
+    let mut imported_tasks = 0;
+    let mut imported_notes = 0;
+    let mut imported_projects = 0;
+
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    for p in data.projects {
+        let res = sqlx::query(
+            "INSERT INTO projects (id, workspace_id, name, description, color, cover_image, status, due_date, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, color=excluded.color, status=excluded.status"
+        )
+        .bind(&p.id)
+        .bind(&target_workspace_id)
+        .bind(&p.name)
+        .bind(&p.description)
+        .bind(&p.color)
+        .bind(&p.cover_image)
+        .bind(&p.status)
+        .bind(p.due_date)
+        .bind(p.created_at)
+        .bind(p.updated_at)
+        .execute(&mut *tx)
+        .await;
+
+        if res.is_ok() {
+            imported_projects += 1;
+        }
+    }
+
+    for t_wrap in data.tasks {
+        let t = t_wrap.task;
+        let res = sqlx::query(
+            "INSERT INTO tasks (id, workspace_id, project_id, title, description, status, priority, start_date, due_date, next_action, completed_at, archived_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET title=excluded.title, description=excluded.description, status=excluded.status, priority=excluded.priority, due_date=excluded.due_date"
+        )
+        .bind(&t.id)
+        .bind(&target_workspace_id)
+        .bind(&t.project_id)
+        .bind(&t.title)
+        .bind(&t.description)
+        .bind(&t.status)
+        .bind(&t.priority)
+        .bind(t.start_date)
+        .bind(t.due_date)
+        .bind(&t.next_action)
+        .bind(t.completed_at)
+        .bind(t.archived_at)
+        .bind(t.created_at)
+        .bind(t.updated_at)
+        .execute(&mut *tx)
+        .await;
+
+        if res.is_ok() {
+            imported_tasks += 1;
+            for sub in t_wrap.subtasks {
+                let _ = sqlx::query(
+                    "INSERT INTO subtasks (id, task_id, title, is_completed, position, created_at)
+                     VALUES (?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(id) DO UPDATE SET title=excluded.title, is_completed=excluded.is_completed"
+                )
+                .bind(&sub.id)
+                .bind(&sub.task_id)
+                .bind(&sub.title)
+                .bind(sub.is_completed)
+                .bind(sub.position)
+                .bind(sub.created_at)
+                .execute(&mut *tx)
+                .await;
+            }
+        }
+    }
+
+    for n in data.notes {
+        let res = sqlx::query(
+            "INSERT INTO notes (id, workspace_id, project_id, title, content, is_pinned, is_archived, color, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET title=excluded.title, content=excluded.content, is_pinned=excluded.is_pinned, is_archived=excluded.is_archived, color=excluded.color"
+        )
+        .bind(&n.id)
+        .bind(&target_workspace_id)
+        .bind(&n.project_id)
+        .bind(&n.title)
+        .bind(&n.content)
+        .bind(n.is_pinned)
+        .bind(n.is_archived)
+        .bind(&n.color)
+        .bind(n.created_at)
+        .bind(n.updated_at)
+        .execute(&mut *tx)
+        .await;
+
+        if res.is_ok() {
+            imported_notes += 1;
+        }
+    }
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    Ok(format!(
+        "Imported {imported_tasks} tasks, {imported_projects} projects, and {imported_notes} notes."
+    ))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -909,9 +1393,10 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir().expect("failed to resolve app data directory");
 
             let pool = tauri::async_runtime::block_on(async {
-                db::init_db(app_data_dir).await
+                db::init_db(app_data_dir.clone()).await
             }).expect("failed to initialize SQLite database");
 
+            app.manage(AppDataPath(app_data_dir));
             app.manage(pool);
             Ok(())
         })
@@ -929,6 +1414,7 @@ pub fn run() {
             create_task,
             toggle_task_status,
             set_task_status,
+            reorder_kanban_tasks,
             delete_task,
             restore_task,
             clear_completed_tasks,
@@ -949,7 +1435,15 @@ pub fn run() {
             toggle_note_pinned,
             archive_note,
             restore_note,
-            delete_note
+            delete_note,
+            get_database_stats,
+            create_database_backup,
+            list_database_backups,
+            restore_database_backup,
+            delete_database_backup,
+            open_backups_folder,
+            export_full_workspace_json,
+            import_full_workspace_json
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

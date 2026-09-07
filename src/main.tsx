@@ -94,6 +94,11 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
 document.documentElement.classList.remove("dark");
 
+const loadingEl = document.getElementById("laya-loading");
+if (loadingEl) {
+  loadingEl.remove();
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>

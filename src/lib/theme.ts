@@ -562,6 +562,8 @@ export function applyTheme(
   root.style.setProperty("--foreground", tokens.foreground);
   root.style.setProperty("--card", tokens.card);
   root.style.setProperty("--card-foreground", tokens.cardForeground);
+  root.style.setProperty("--popover", tokens.card);
+  root.style.setProperty("--popover-foreground", tokens.cardForeground);
   root.style.setProperty("--primary", tokens.primary);
   root.style.setProperty("--primary-foreground", tokens.primaryForeground);
   root.style.setProperty("--secondary", tokens.secondary);

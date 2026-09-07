@@ -236,7 +236,7 @@ export const NotesView: React.FC<NotesViewProps> = ({ workspaceId }) => {
               <FileText className="h-3.5 w-3.5 text-primary" />
               <span>All Notes</span>
             </div>
-            <span className="text-[10px] font-mono text-muted-foreground bg-background px-1.5 py-0.2 rounded border border-border/50">
+            <span className="text-[10px] font-mono text-muted-foreground bg-background px-1.5 py-px rounded border border-border/50">
               {activeCount}
             </span>
           </button>
@@ -255,7 +255,7 @@ export const NotesView: React.FC<NotesViewProps> = ({ workspaceId }) => {
               <Pin className="h-3.5 w-3.5 text-amber-500 fill-amber-500/20" />
               <span>Pinned</span>
             </div>
-            <span className="text-[10px] font-mono text-muted-foreground bg-background px-1.5 py-0.2 rounded border border-border/50">
+            <span className="text-[10px] font-mono text-muted-foreground bg-background px-1.5 py-px rounded border border-border/50">
               {pinnedCount}
             </span>
           </button>
@@ -286,7 +286,7 @@ export const NotesView: React.FC<NotesViewProps> = ({ workspaceId }) => {
                   <FolderKanban className="h-3.5 w-3.5 text-primary shrink-0" />
                   <span className="truncate">{proj.name}</span>
                 </div>
-                <span className="text-[10px] font-mono text-muted-foreground bg-background px-1.5 py-0.2 rounded border border-border/50 shrink-0">
+                <span className="text-[10px] font-mono text-muted-foreground bg-background px-1.5 py-px rounded border border-border/50 shrink-0">
                   {projNotesCount}
                 </span>
               </button>
@@ -309,7 +309,7 @@ export const NotesView: React.FC<NotesViewProps> = ({ workspaceId }) => {
               <Archive className="h-3.5 w-3.5 text-muted-foreground" />
               <span>Archive</span>
             </div>
-            <span className="text-[10px] font-mono text-muted-foreground bg-background px-1.5 py-0.2 rounded border border-border/50">
+            <span className="text-[10px] font-mono text-muted-foreground bg-background px-1.5 py-px rounded border border-border/50">
               {archivedCount}
             </span>
           </button>
@@ -446,8 +446,9 @@ export const NotesView: React.FC<NotesViewProps> = ({ workspaceId }) => {
                     <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-1">
                       <div className="flex items-center gap-1.5 truncate">
                         {linkedProject && (
-                          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-muted border border-border/50 text-foreground font-medium truncate max-w-[110px]">
-                            📓 {linkedProject.name}
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted border border-border/50 text-foreground font-medium truncate max-w-[120px]">
+                            <FolderKanban className="h-3 w-3 text-primary shrink-0" />
+                            <span className="truncate">{linkedProject.name}</span>
                           </span>
                         )}
                       </div>
@@ -468,10 +469,12 @@ export const NotesView: React.FC<NotesViewProps> = ({ workspaceId }) => {
             key={activeNote.id}
             note={activeNote}
             projects={projects}
+            allNotes={notes}
             onUpdateNote={handleUpdateNote}
             onDeleteNote={handleDeleteNote}
             onTogglePin={handleTogglePin}
             onArchiveNote={handleArchiveNote}
+            onNavigateToNote={(noteId) => setSelectedNoteId(noteId)}
             onClose={() => setSelectedNoteId(null)}
           />
         ) : (
@@ -487,24 +490,27 @@ export const NotesView: React.FC<NotesViewProps> = ({ workspaceId }) => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full text-left">
-              {STARTER_TEMPLATES.map((tmpl) => (
-                <button
-                  key={tmpl.id}
-                  type="button"
-                  onClick={() => void handleCreateNoteWithTemplate(tmpl)}
-                  className="p-3.5 rounded-2xl border border-border bg-card/60 hover:bg-muted/40 hover:border-primary/40 transition-all cursor-pointer shadow-2xs hover:shadow-card space-y-1 group"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">{tmpl.icon}</span>
-                    <h4 className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">
-                      {tmpl.title}
-                    </h4>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground line-clamp-2">
-                    {tmpl.description}
-                  </p>
-                </button>
-              ))}
+              {STARTER_TEMPLATES.map((tmpl) => {
+                const TmplIcon = tmpl.icon;
+                return (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => void handleCreateNoteWithTemplate(tmpl)}
+                    className="p-3.5 rounded-2xl border border-border bg-card/60 hover:bg-muted/40 hover:border-primary/40 transition-all cursor-pointer shadow-2xs hover:shadow-card space-y-1 group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <TmplIcon className="h-4 w-4 text-primary shrink-0" />
+                      <h4 className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">
+                        {tmpl.title}
+                      </h4>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
+                      {tmpl.description}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="pt-1">

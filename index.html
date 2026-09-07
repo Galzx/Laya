@@ -2,12 +2,87 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React + Typescript</title>
+    <title>Laya Workspace</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #f7f5f0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      #root {
+        width: 100%;
+        height: 100%;
+      }
+      #laya-loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background-color: #f7f5f0;
+        color: #2b2523;
+        z-index: 9999;
+        transition: opacity 0.2s ease;
+      }
+      #laya-error {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background-color: #18181b;
+        color: #f4f4f5;
+        padding: 2rem;
+        z-index: 10000;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+    </style>
+    <script>
+      window.addEventListener('error', function(e) {
+        var errDiv = document.getElementById('laya-error');
+        var errText = document.getElementById('laya-error-text');
+        var loading = document.getElementById('laya-loading');
+        if (loading) loading.style.display = 'none';
+        if (errDiv && errText) {
+          errDiv.style.display = 'flex';
+          errText.innerText = (e.message || e.toString()) + '\nAt: ' + (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || '');
+        }
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var errDiv = document.getElementById('laya-error');
+        var errText = document.getElementById('laya-error-text');
+        var loading = document.getElementById('laya-loading');
+        if (loading) loading.style.display = 'none';
+        if (errDiv && errText) {
+          errDiv.style.display = 'flex';
+          errText.innerText = 'Unhandled Rejection: ' + (e.reason ? (e.reason.stack || e.reason.toString()) : 'Unknown');
+        }
+      });
+    </script>
   </head>
 
   <body>
+    <div id="laya-loading">
+      <div style="font-size: 1.25rem; font-weight: 600; color: #a7636e; letter-spacing: -0.02em;">Laya</div>
+      <div style="font-size: 0.75rem; color: #8c827a; margin-top: 0.25rem;">Loading workspace…</div>
+    </div>
+
+    <div id="laya-error">
+      <div style="max-width: 540px; width: 100%; background: #27272a; border-radius: 1rem; padding: 1.5rem; border: 1px solid #3f3f46;">
+        <h3 style="color: #f43f5e; margin: 0 0 0.5rem 0; font-size: 1.1rem;">Laya Startup Error</h3>
+        <pre id="laya-error-text" style="background: #09090b; color: #fb7185; padding: 1rem; border-radius: 0.5rem; font-size: 0.75rem; overflow-x: auto; white-space: pre-wrap; margin: 0 0 1rem 0;"></pre>
+        <button onclick="window.location.reload()" style="background: #e11d48; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 600; cursor: pointer;">
+          Reload Page
+        </button>
+      </div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

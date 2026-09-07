@@ -11,11 +11,15 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  List,
+  Columns3,
+  SlidersHorizontal,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { DatePicker } from "../ui/DatePicker";
 import { playTaskPopSound, playSweepSound } from "../../lib/sound";
 import { TaskItem } from "./TaskItem";
+import { KanbanBoard } from "../kanban/KanbanBoard";
 import type { Project } from "../projects/ProjectsView";
 
 export interface Task {
@@ -24,7 +28,7 @@ export interface Task {
   project_id?: string | null;
   title: string;
   description: string | null;
-  status: "inbox" | "planned" | "in_progress" | "waiting" | "completed" | "archived";
+  status: "inbox" | "planned" | "todo" | "in_progress" | "waiting" | "completed" | "archived";
   priority: "low" | "medium" | "high" | "urgent";
   start_date: number | null;
   due_date: number | null;
@@ -33,6 +37,7 @@ export interface Task {
   archived_at: number | null;
   created_at: number;
   updated_at: number;
+  position?: number | null;
 }
 
 export interface Subtask {
@@ -53,7 +58,12 @@ function dateInputToEpoch(dateStr: string): number | null {
   return Math.floor(new Date(y, m - 1, d, 12, 0, 0).getTime() / 1000);
 }
 
-export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) => {
+export interface TasksViewProps {
+  workspaceId: string;
+  initialViewMode?: "list" | "kanban";
+}
+
+export const TasksView: React.FC<TasksViewProps> = ({ workspaceId, initialViewMode }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [filter, setFilter] = useState<FilterType>("today");
@@ -72,6 +82,35 @@ export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     const saved = localStorage.getItem("laya-completed-position");
     return saved === "remain" ? "remain" : "bottom";
   });
+  const [viewMode, setViewMode] = useState<"list" | "kanban">(() => {
+    if (initialViewMode) return initialViewMode;
+    const saved = localStorage.getItem("laya-tasks-view-mode");
+    return saved === "kanban" ? "kanban" : "list";
+  });
+  const [isEditMode, setIsEditMode] = useState<boolean>(() => {
+    return localStorage.getItem("laya-kanban-edit-mode") === "true";
+  });
+
+  useEffect(() => {
+    if (initialViewMode) {
+      setViewMode(initialViewMode);
+    }
+  }, [initialViewMode]);
+
+  const handleToggleEditMode = () => {
+    setIsEditMode((prev) => {
+      const next = !prev;
+      localStorage.setItem("laya-kanban-edit-mode", String(next));
+      playTaskPopSound();
+      return next;
+    });
+  };
+
+  const handleViewModeChange = (mode: "list" | "kanban") => {
+    playTaskPopSound();
+    setViewMode(mode);
+    localStorage.setItem("laya-tasks-view-mode", mode);
+  };
 
   const handleCompletedPositionChange = async (pos: "bottom" | "remain") => {
     setCompletedPosition(pos);
@@ -437,18 +476,84 @@ export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
 
   return (
     <div className="space-y-6 w-full max-w-6xl mx-auto animate-smooth-in pb-12">
-      {/* Title & Stats */}
-      <div className="flex flex-wrap items-baseline justify-between gap-4">
+      {/* ─── 1. PROMINENT TITLE & VIEW SWITCHER BANNER ─── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 bg-card border border-border rounded-2xl shadow-card">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5">
-            <h2 className="text-xl font-semibold tracking-tight text-foreground">
-              {filterLabels[filter].title}
+            <h2 className="text-xl font-bold tracking-tight text-foreground">
+              {viewMode === "kanban" ? "Agile Kanban Board" : filterLabels[filter].title}
             </h2>
-            <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-              {counts[filter]} {counts[filter] === 1 ? "task" : "tasks"}
+            <span className="text-xs font-mono font-semibold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+              {viewMode === "kanban"
+                ? `${tasks.filter((t) => t.status !== "archived").length} active items`
+                : `${counts[filter]} task${counts[filter] === 1 ? "" : "s"}`}
             </span>
           </div>
-          <p className="text-sm text-muted-foreground">{filterLabels[filter].helper}</p>
+          <p className="text-xs text-muted-foreground">
+            {viewMode === "kanban"
+              ? "Drag and drop cards between Backlog, To-Do, In Progress, and Completed columns."
+              : filterLabels[filter].helper}
+          </p>
+        </div>
+
+        {/* Right Controls with Edit Mode & View Switcher */}
+        <div className="flex items-center gap-2.5">
+          {/* Edit Mode Toggle Button */}
+          <button
+            type="button"
+            onClick={handleToggleEditMode}
+            className={cn(
+              "flex items-center gap-2 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer border shadow-2xs",
+              isEditMode
+                ? "bg-primary text-primary-foreground border-primary shadow-sm ring-2 ring-primary/30"
+                : "bg-card text-muted-foreground border-border hover:text-foreground hover:bg-muted/60"
+            )}
+            title={isEditMode ? "Turn off Edit Mode" : "Turn on Edit Mode to drag & reorder tasks anywhere"}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span>Edit Mode</span>
+            <span
+              className={cn(
+                "text-[10px] uppercase font-mono font-bold px-1.5 py-0.5 rounded-md",
+                isEditMode
+                  ? "bg-primary-foreground/20 text-primary-foreground"
+                  : "bg-muted text-muted-foreground"
+              )}
+            >
+              {isEditMode ? "ON" : "OFF"}
+            </span>
+          </button>
+
+          {/* Large Prominent View Switcher Pills */}
+          <div className="flex items-center bg-muted/80 p-1.5 rounded-2xl border border-border gap-1.5 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => handleViewModeChange("list")}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                viewMode === "list"
+                  ? "bg-background text-foreground shadow-card ring-1 ring-border/50"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/40"
+              )}
+            >
+              <List className="h-4 w-4 text-primary" />
+              <span>List View</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleViewModeChange("kanban")}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                viewMode === "kanban"
+                  ? "bg-primary text-primary-foreground shadow-md ring-1 ring-primary/50"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/40"
+              )}
+            >
+              <Columns3 className="h-4 w-4" />
+              <span>Kanban Board</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -463,7 +568,7 @@ export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
             <input
               type="text"
               autoFocus
-              placeholder="Capture a task — press Enter to save"
+              placeholder="Capture a task - press Enter to save"
               value={newTitle}
               onChange={(event) => setNewTitle(event.target.value)}
               className="flex-1 bg-transparent px-2 py-1.5 text-sm focus:outline-none placeholder:text-muted-foreground/60 text-foreground"
@@ -512,7 +617,7 @@ export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
                 <span>{item === "archive" ? "Archive" : item}</span>
                 <span
                   className={cn(
-                    "text-[10px] font-mono px-1.5 py-0.2 rounded-full",
+                    "text-[10px] font-mono px-1.5 py-px rounded-full",
                     isActive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
                   )}
                 >
@@ -525,8 +630,41 @@ export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
 
         {/* Right Toolbar Controls */}
         <div className="flex items-center gap-2">
+          {/* View Mode Toggle (List vs Kanban) */}
+          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border text-xs">
+            <button
+              type="button"
+              onClick={() => handleViewModeChange("list")}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer",
+                viewMode === "list"
+                  ? "bg-background shadow-xs text-foreground font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              title="List View"
+            >
+              <List className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">List</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleViewModeChange("kanban")}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer",
+                viewMode === "kanban"
+                  ? "bg-background shadow-xs text-foreground font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              title="Kanban Board View"
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Kanban</span>
+            </button>
+          </div>
+
           {/* Completed Task Position Toggle */}
-          {filter !== "archive" && (
+          {filter !== "archive" && viewMode === "list" && (
             <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border text-xs">
               <span className="text-muted-foreground pl-1.5 text-[11px] font-medium hidden sm:inline">
                 Completed:
@@ -592,8 +730,17 @@ export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         </div>
       )}
 
-      {/* Task list */}
-      {loading ? (
+      {/* View Content (Kanban or List) */}
+      {viewMode === "kanban" ? (
+        <KanbanBoard
+          tasks={tasks}
+          projects={projects}
+          workspaceId={workspaceId}
+          isEditMode={isEditMode}
+          onToggleEditMode={handleToggleEditMode}
+          onTasksChanged={() => void loadData(false)}
+        />
+      ) : loading ? (
         <div className="py-12 text-center">
           <p className="text-xs text-muted-foreground">Reading your workspace tasks...</p>
         </div>
@@ -675,13 +822,13 @@ export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       {showClearDialog &&
         createPortal(
           <div
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-backdrop-in p-4 select-none"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-backdrop-in p-4 select-none"
             onClick={() => {
               if (!clearingCompleted) setShowClearDialog(false);
             }}
           >
             <div
-              className="bg-card border border-border rounded-3xl p-7 shadow-2xl max-w-sm w-full space-y-5 animate-dialog-in text-center relative overflow-hidden"
+              className="bg-card border border-border rounded-2xl p-7 shadow-2xl max-w-sm w-full space-y-5 animate-dialog-in text-center relative overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Cozy Unboxed Stage with Cat & Celebratory Pop Finish */}
@@ -768,13 +915,13 @@ export const TasksView: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       {showClearArchiveDialog &&
         createPortal(
           <div
-            className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-backdrop-in p-4 select-none"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-backdrop-in p-4 select-none"
             onClick={() => {
               if (!clearingArchive) setShowClearArchiveDialog(false);
             }}
           >
             <div
-              className="bg-card border border-border rounded-3xl p-7 shadow-2xl max-w-sm w-full space-y-5 animate-dialog-in text-center relative overflow-hidden"
+              className="bg-card border border-border rounded-2xl p-7 shadow-2xl max-w-sm w-full space-y-5 animate-dialog-in text-center relative overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto shadow-xs">

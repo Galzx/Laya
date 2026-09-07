@@ -57,25 +57,25 @@ const THEME_INSPIRATIONS: ThemeInspiration[] = [
 ];
 
 export const LIGHT_BASE_PRESETS = [
-  { name: "Matcha Garden", hex: "#d8ebd8", emoji: "🍵", previewGrad: "linear-gradient(135deg, #d8ebd8 0%, #c3e2c3 100%)" },
-  { name: "Sakura Rose", hex: "#fcdbe4", emoji: "🌸", previewGrad: "linear-gradient(135deg, #fcdbe4 0%, #f8c8d5 100%)" },
-  { name: "Warm Oatmeal", hex: "#eee4cf", emoji: "🌾", previewGrad: "linear-gradient(135deg, #eee4cf 0%, #e6d5b8 100%)" },
-  { name: "Golden Honey", hex: "#faeec8", emoji: "🍦", previewGrad: "linear-gradient(135deg, #faeec8 0%, #f5e2a6 100%)" },
-  { name: "Glacial Sky", hex: "#cfe7f8", emoji: "🧊", previewGrad: "linear-gradient(135deg, #cfe7f8 0%, #b8daf2 100%)" },
-  { name: "Lavender Mist", hex: "#e4d5fa", emoji: "🪻", previewGrad: "linear-gradient(135deg, #e4d5fa 0%, #d3bdf5 100%)" },
-  { name: "Peach Sunset", hex: "#fcd4be", emoji: "🍑", previewGrad: "linear-gradient(135deg, #fcd4be 0%, #f9be9e 100%)" },
-  { name: "Crisp Mint", hex: "#d2f2e5", emoji: "🌿", previewGrad: "linear-gradient(135deg, #d2f2e5 0%, #b8ead4 100%)" },
+  { name: "Matcha Garden", hex: "#d8ebd8", previewGrad: "linear-gradient(135deg, #d8ebd8 0%, #c3e2c3 100%)" },
+  { name: "Sakura Rose", hex: "#fcdbe4", previewGrad: "linear-gradient(135deg, #fcdbe4 0%, #f8c8d5 100%)" },
+  { name: "Warm Oatmeal", hex: "#eee4cf", previewGrad: "linear-gradient(135deg, #eee4cf 0%, #e6d5b8 100%)" },
+  { name: "Golden Honey", hex: "#faeec8", previewGrad: "linear-gradient(135deg, #faeec8 0%, #f5e2a6 100%)" },
+  { name: "Glacial Sky", hex: "#cfe7f8", previewGrad: "linear-gradient(135deg, #cfe7f8 0%, #b8daf2 100%)" },
+  { name: "Lavender Mist", hex: "#e4d5fa", previewGrad: "linear-gradient(135deg, #e4d5fa 0%, #d3bdf5 100%)" },
+  { name: "Peach Sunset", hex: "#fcd4be", previewGrad: "linear-gradient(135deg, #fcd4be 0%, #f9be9e 100%)" },
+  { name: "Crisp Mint", hex: "#d2f2e5", previewGrad: "linear-gradient(135deg, #d2f2e5 0%, #b8ead4 100%)" },
 ];
 
 export const DARK_BASE_PRESETS = [
-  { name: "Midnight Slate", hex: "#111827", emoji: "🌌", previewGrad: "linear-gradient(135deg, #111827 0%, #1e293b 100%)" },
-  { name: "Obsidian Pitch", hex: "#09090b", emoji: "🖤", previewGrad: "linear-gradient(135deg, #09090b 0%, #18181b 100%)" },
-  { name: "Deep Spruce", hex: "#0a1a12", emoji: "🌲", previewGrad: "linear-gradient(135deg, #0a1a12 0%, #142e20 100%)" },
-  { name: "Cozy Hearth", hex: "#1f140e", emoji: "🔥", previewGrad: "linear-gradient(135deg, #1f140e 0%, #301d12 100%)" },
-  { name: "Cosmic Nebula", hex: "#1a0f2e", emoji: "🔮", previewGrad: "linear-gradient(135deg, #1a0f2e 0%, #29154a 100%)" },
-  { name: "Ocean Abyss", hex: "#081b26", emoji: "🌊", previewGrad: "linear-gradient(135deg, #081b26 0%, #112a3d 100%)" },
-  { name: "Black Cherry", hex: "#260d18", emoji: "🍷", previewGrad: "linear-gradient(135deg, #260d18 0%, #3d1425 100%)" },
-  { name: "Cyber Charcoal", hex: "#13171f", emoji: "⚡", previewGrad: "linear-gradient(135deg, #13171f 0%, #202633 100%)" },
+  { name: "Midnight Slate", hex: "#111827", previewGrad: "linear-gradient(135deg, #111827 0%, #1e293b 100%)" },
+  { name: "Obsidian Pitch", hex: "#09090b", previewGrad: "linear-gradient(135deg, #09090b 0%, #18181b 100%)" },
+  { name: "Deep Spruce", hex: "#0a1a12", previewGrad: "linear-gradient(135deg, #0a1a12 0%, #142e20 100%)" },
+  { name: "Cozy Hearth", hex: "#1f140e", previewGrad: "linear-gradient(135deg, #1f140e 0%, #301d12 100%)" },
+  { name: "Cosmic Nebula", hex: "#1a0f2e", previewGrad: "linear-gradient(135deg, #1a0f2e 0%, #29154a 100%)" },
+  { name: "Ocean Abyss", hex: "#081b26", previewGrad: "linear-gradient(135deg, #081b26 0%, #112a3d 100%)" },
+  { name: "Black Cherry", hex: "#260d18", previewGrad: "linear-gradient(135deg, #260d18 0%, #3d1425 100%)" },
+  { name: "Cyber Charcoal", hex: "#13171f", previewGrad: "linear-gradient(135deg, #13171f 0%, #202633 100%)" },
 ];
 
 export const ThemeStudioModal: React.FC<ThemeStudioModalProps> = ({
@@ -303,11 +303,11 @@ export const ThemeStudioModal: React.FC<ThemeStudioModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-backdrop-in select-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-backdrop-in select-none"
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-3xl shadow-2xl max-w-5xl w-full overflow-hidden animate-dialog-in flex flex-col max-h-[94vh]"
+        className="bg-card border border-border rounded-3xl shadow-dialog max-w-5xl w-full overflow-hidden animate-dialog-in flex flex-col max-h-[94vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ─── STUDIO HEADER ──────────────────────────────────────────────── */}
@@ -487,7 +487,7 @@ export const ThemeStudioModal: React.FC<ThemeStudioModalProps> = ({
                         className="w-8 h-8 rounded-lg border border-black/15 shadow-inner flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform duration-300"
                         style={{ background: swatch.previewGrad || swatch.hex }}
                       >
-                        <span className="text-xs drop-shadow-xs">{swatch.emoji}</span>
+                        {isSelected && <Check className="h-3.5 w-3.5 text-foreground/80 drop-shadow-xs" />}
                       </div>
 
                       <div className="min-w-0 flex-1">

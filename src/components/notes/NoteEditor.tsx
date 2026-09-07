@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Pin,
   Trash2,
@@ -26,9 +26,15 @@ import {
   Highlighter,
   ListOrdered,
   ChevronDown,
+  Link2,
+  FileText,
+  Calendar,
+  Rocket,
+  Lightbulb,
+  Zap,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { renderMarkdown } from "./markdownParser";
+import { renderMarkdown, extractWikilinks } from "./markdownParser";
 import { playTaskPopSound } from "../../lib/sound";
 
 export interface Note {
@@ -53,10 +59,12 @@ export interface ProjectSummary {
 interface NoteEditorProps {
   note: Note;
   projects: ProjectSummary[];
+  allNotes?: Note[];
   onUpdateNote: (noteId: string, updates: Partial<Note>) => Promise<void>;
   onDeleteNote: (noteId: string) => Promise<void>;
   onTogglePin: (noteId: string) => Promise<void>;
   onArchiveNote: (noteId: string) => Promise<void>;
+  onNavigateToNote?: (noteId: string) => void;
   onClose?: () => void;
 }
 
@@ -80,7 +88,7 @@ export function getNoteColorDef(colorId?: string | null) {
 export const STARTER_TEMPLATES: {
   id: string;
   title: string;
-  icon: string;
+  icon: React.ElementType;
   description: string;
   defaultTitle: string;
   templateContent: string;
@@ -88,20 +96,20 @@ export const STARTER_TEMPLATES: {
   {
     id: "meeting",
     title: "Meeting Notes",
-    icon: "📋",
+    icon: FileText,
     description: "Objective, attendees, discussion points, and action items.",
     defaultTitle: "Meeting Notes",
-    templateContent: `## 🎯 Objective
+    templateContent: `## Objective
 Discuss priorities, project updates, and upcoming deliverables.
 
-### 👥 Attendees
+### Attendees
 - 
 
-### 📋 Discussion Points
+### Discussion Points
 - 
 - 
 
-### ✅ Action Items
+### Action Items
 - [ ] Task 1 (Assignee / Due Date)
 - [ ] Follow up on next steps
 `,
@@ -109,36 +117,36 @@ Discuss priorities, project updates, and upcoming deliverables.
   {
     id: "daily_focus",
     title: "Daily Focus",
-    icon: "🌅",
+    icon: Calendar,
     description: "Top 3 priorities for today, quick notes, and wins.",
     defaultTitle: "Daily Focus & Reflection",
-    templateContent: `## 🌅 Top 3 Priorities for Today
+    templateContent: `## Top 3 Priorities for Today
 - [ ] Priority 1 (Most important)
 - [ ] Priority 2
 - [ ] Priority 3
 
-### 💡 Quick Notes & Brainstorm
+### Quick Notes & Brainstorm
 - 
 
-### ✨ Wins & Gratitude
+### Wins & Gratitude
 - What went well today?
 `,
   },
   {
     id: "project_plan",
     title: "Project Roadmap",
-    icon: "🚀",
+    icon: Rocket,
     description: "Milestones, scope, and key deliverables.",
     defaultTitle: "Project Roadmap",
-    templateContent: `## 🚀 Overview
+    templateContent: `## Overview
 What problem does this project solve?
 
-### 🎯 Key Milestones
+### Key Milestones
 1. Phase 1: Research & Requirements
 2. Phase 2: Implementation & Polish
 3. Phase 3: Launch
 
-### 📝 Deliverables
+### Deliverables
 - [ ] Define project scope
 - [ ] Build key components
 - [ ] Test and review
@@ -147,27 +155,27 @@ What problem does this project solve?
   {
     id: "brainstorm",
     title: "Brainstorming",
-    icon: "💡",
+    icon: Lightbulb,
     description: "Challenge definition, idea dump, and questions.",
     defaultTitle: "Brainstorming & Ideas",
-    templateContent: `## 💡 Core Challenge
+    templateContent: `## Core Challenge
 What is the problem or opportunity?
 
-### 🌟 Ideas & Solutions
+### Ideas & Solutions
 - **Idea 1**: 
 - **Idea 2**: 
 
-### ❓ Open Questions
+### Open Questions
 > What is the easiest first experiment we can run?
 `,
   },
   {
     id: "checklist",
     title: "Checklist",
-    icon: "✅",
+    icon: CheckSquare,
     description: "Clickable checkbox list for quick tasks.",
     defaultTitle: "Task Checklist",
-    templateContent: `## 📋 Checklist
+    templateContent: `## Checklist
 - [ ] First task item
 - [ ] Second task item
 - [ ] Third task item
@@ -178,25 +186,51 @@ What is the problem or opportunity?
 export const NoteEditor: React.FC<NoteEditorProps> = ({
   note,
   projects,
+  allNotes = [],
   onUpdateNote,
   onDeleteNote,
   onTogglePin,
   onArchiveNote,
+  onNavigateToNote,
   onClose,
 }) => {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [projectId, setProjectId] = useState<string | null>(note.project_id);
   const [color, setColor] = useState(note.color || "amber");
-  const [viewMode, setViewMode] = useState<ViewMode>("split");
+  const [viewMode, setViewMode] = useState<ViewMode>(note.content.trim() ? "preview" : "edit");
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [copiedNotification, setCopiedNotification] = useState(false);
+  const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<number | null>(null);
+
+  const handleCopyCode = (code: string, id: string) => {
+    void navigator.clipboard.writeText(code);
+    setCopiedCodeId(id);
+    window.setTimeout(() => setCopiedCodeId(null), 2000);
+  };
+
+  const handleWikilinkClick = (noteTitle: string) => {
+    const target = allNotes.find((n) => n.title.trim().toLowerCase() === noteTitle.trim().toLowerCase());
+    if (target && onNavigateToNote) {
+      onNavigateToNote(target.id);
+    }
+  };
+
+  const backlinks = useMemo(() => {
+    if (!allNotes.length || !note.title.trim()) return [];
+    const currentTitle = note.title.trim().toLowerCase();
+    return allNotes.filter((n) => {
+      if (n.id === note.id || n.is_archived === 1) return false;
+      const links = extractWikilinks(n.content);
+      return links.some((l) => l.toLowerCase() === currentTitle);
+    });
+  }, [allNotes, note.id, note.title]);
 
   useEffect(() => {
     setTitle(note.title);
@@ -204,6 +238,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     setProjectId(note.project_id);
     setColor(note.color || "amber");
     setSaveStatus("saved");
+    setViewMode(note.content.trim() ? "preview" : "edit");
   }, [note.id]);
 
   const triggerAutoSave = useCallback(
@@ -380,7 +415,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               <option value="">No Notebook</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  📓 {p.name}
+                  {p.name}
                 </option>
               ))}
             </select>
@@ -729,17 +764,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {STARTER_TEMPLATES.slice(0, 3).map((tmpl) => (
-                    <button
-                      key={tmpl.id}
-                      type="button"
-                      onClick={() => applyTemplate(tmpl)}
-                      className="px-2.5 py-1 rounded-lg border border-border/80 bg-card hover:bg-muted/80 hover:border-primary/40 text-xs font-medium text-foreground transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                    >
-                      <span>{tmpl.icon}</span>
-                      <span>{tmpl.title}</span>
-                    </button>
-                  ))}
+                  {STARTER_TEMPLATES.slice(0, 3).map((tmpl) => {
+                    const TmplIcon = tmpl.icon;
+                    return (
+                      <button
+                        key={tmpl.id}
+                        type="button"
+                        onClick={() => applyTemplate(tmpl)}
+                        className="px-2.5 py-1 rounded-lg border border-border/80 bg-card hover:bg-muted/80 hover:border-primary/40 text-xs font-medium text-foreground transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                      >
+                        <TmplIcon className="h-3.5 w-3.5 text-primary" />
+                        <span>{tmpl.title}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -757,16 +795,73 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
         {/* Right Column: Rendered Markdown Preview */}
         {(viewMode === "preview" || viewMode === "split") && (
-          <div className="flex-1 flex flex-col min-h-0 p-6 overflow-y-auto bg-card">
+          <div className="flex-1 flex flex-col min-h-0 p-6 overflow-y-auto bg-card relative group/preview">
             {viewMode === "preview" && (
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground mb-4 pb-2 border-b border-border/60">
                 {title.trim() || "Untitled Note"}
               </h1>
             )}
 
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              {renderMarkdown(content, { onToggleTaskLine: handleToggleTaskLine })}
+            {/* Click-to-edit overlay hint (only in pure preview mode) */}
+            {viewMode === "preview" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setViewMode("edit");
+                  window.setTimeout(() => textareaRef.current?.focus(), 30);
+                }}
+                className="absolute top-3 right-3 opacity-0 group-hover/preview:opacity-100 transition-opacity flex items-center gap-1 px-2 py-1 rounded-lg bg-muted/80 border border-border text-[11px] text-muted-foreground hover:text-foreground cursor-pointer z-10"
+                title="Click to edit"
+              >
+                <Edit3 className="h-3 w-3" />
+                Edit
+              </button>
+            )}
+
+            <div
+              className={viewMode === "preview" ? "prose prose-sm dark:prose-invert max-w-none cursor-text" : "prose prose-sm dark:prose-invert max-w-none"}
+              onClick={(e) => {
+                // Only switch to edit on click in pure preview mode
+                // Don't intercept clicks on interactive elements
+                if (viewMode !== "preview") return;
+                const target = e.target as HTMLElement;
+                const isInteractive = target.closest("button, a, input, [role='button']");
+                if (!isInteractive) {
+                  setViewMode("edit");
+                  window.setTimeout(() => textareaRef.current?.focus(), 30);
+                }
+              }}
+            >
+              {renderMarkdown(content, {
+                onToggleTaskLine: handleToggleTaskLine,
+                onWikilinkClick: handleWikilinkClick,
+                onCopyCode: handleCopyCode,
+                copiedCodeId,
+              })}
             </div>
+
+            {/* Backlinks panel */}
+            {backlinks.length > 0 && (
+              <div className="mt-8 pt-4 border-t border-border/60">
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                  <Link2 className="h-3.5 w-3.5 text-primary" />
+                  <span>Linked from {backlinks.length} {backlinks.length === 1 ? "note" : "notes"}</span>
+                </h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {backlinks.map((bn) => (
+                    <button
+                      key={bn.id}
+                      type="button"
+                      onClick={() => onNavigateToNote?.(bn.id)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-muted hover:bg-primary/10 hover:text-primary border border-border text-xs font-medium transition-colors cursor-pointer"
+                    >
+                      <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span className="truncate max-w-[200px]">{bn.title || "Untitled Note"}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -802,7 +897,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
       {/* ─── TEMPLATES MODAL ─── */}
       {showTemplatesModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 animate-scale-in">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -824,24 +919,27 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-              {STARTER_TEMPLATES.map((tmpl) => (
-                <button
-                  key={tmpl.id}
-                  type="button"
-                  onClick={() => applyTemplate(tmpl)}
-                  className="p-3.5 rounded-xl border border-border bg-card hover:bg-muted/50 hover:border-primary/50 text-left transition-all cursor-pointer shadow-xs space-y-1.5 group"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">{tmpl.icon}</span>
-                    <h4 className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">
-                      {tmpl.title}
-                    </h4>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    {tmpl.description}
-                  </p>
-                </button>
-              ))}
+              {STARTER_TEMPLATES.map((tmpl) => {
+                const TmplIcon = tmpl.icon;
+                return (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => applyTemplate(tmpl)}
+                    className="p-3.5 rounded-xl border border-border bg-card hover:bg-muted/50 hover:border-primary/50 text-left transition-all cursor-pointer shadow-xs space-y-1.5 group"
+                  >
+                    <div className="flex items-center gap-2">
+                      <TmplIcon className="h-5 w-5 text-primary shrink-0" />
+                      <h4 className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">
+                        {tmpl.title}
+                      </h4>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {tmpl.description}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="pt-2 flex justify-end">
@@ -859,7 +957,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
       {/* ─── FORMATTING & SHORTCUTS GUIDE MODAL ─── */}
       {showGuideModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-xl w-full p-6 space-y-4 animate-scale-in max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
@@ -884,7 +982,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               {/* Keyboard Shortcuts */}
               <div className="space-y-2">
                 <h4 className="font-semibold text-foreground flex items-center gap-1.5">
-                  <span>⚡ Essential Shortcuts</span>
+                  <Zap className="h-4 w-4 text-primary" />
+                  <span>Essential Shortcuts</span>
                 </h4>
                 <div className="grid grid-cols-2 gap-2 text-[11px]">
                   <div className="p-2 rounded-xl bg-muted/50 border border-border flex justify-between items-center">
@@ -909,7 +1008,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               {/* Formatting Cheat Sheet Table */}
               <div className="space-y-2">
                 <h4 className="font-semibold text-foreground flex items-center gap-1.5">
-                  <span>📝 Formatting Cheat Sheet</span>
+                  <FileText className="h-4 w-4 text-primary" />
+                  <span>Formatting Cheat Sheet</span>
                 </h4>
                 <div className="rounded-xl border border-border overflow-hidden divide-y divide-border">
                   <div className="p-2 bg-muted/40 font-medium text-[11px] grid grid-cols-2 text-muted-foreground">

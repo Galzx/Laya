@@ -515,7 +515,6 @@ export const TIDY_SOUND_PROFILES: TidySoundProfileDef[] = [
     description: "Rapid ascending bubbly water pops with a buoyant pop finish",
     tag: "Playful",
     play: (ctx, now) => {
-      // 6 rapid bubbly pops
       const freqs = [380, 480, 580, 720, 920, 1200];
       freqs.forEach((baseFreq, idx) => {
         const nt = now + idx * 0.09;
@@ -531,6 +530,248 @@ export const TIDY_SOUND_PROFILES: TidySoundProfileDef[] = [
         gn.connect(ctx.destination);
         o.start(nt);
         o.stop(nt + 0.08);
+      });
+    },
+  },
+  {
+    id: "cat-purr-sparkle",
+    name: "Purr & Star Polish",
+    description: "Gentle 24Hz vibrating cat purr rumble gliding into a pristine star sparkle ping",
+    tag: "Cozy",
+    play: (ctx, now) => {
+      // 1. Cat Purr Layer (Low oscillator AM modulated)
+      const purrOsc = ctx.createOscillator();
+      const purrGain = ctx.createGain();
+      const purrMod = ctx.createOscillator();
+      const purrModGain = ctx.createGain();
+
+      purrOsc.type = "sawtooth";
+      purrOsc.frequency.setValueAtTime(75, now);
+      purrOsc.frequency.exponentialRampToValueAtTime(85, now + 0.35);
+
+      // Lowpass filter for deep muffled purr warmth
+      const purrFilter = ctx.createBiquadFilter();
+      purrFilter.type = "lowpass";
+      purrFilter.frequency.setValueAtTime(140, now);
+
+      // LFO modulation at 24 Hz for purr flutter
+      purrMod.frequency.setValueAtTime(24, now);
+      purrModGain.gain.setValueAtTime(0.08, now);
+
+      purrGain.gain.setValueAtTime(0.0001, now);
+      purrGain.gain.exponentialRampToValueAtTime(0.18, now + 0.15);
+      purrGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+
+      purrMod.connect(purrGain.gain);
+      purrOsc.connect(purrFilter);
+      purrFilter.connect(purrGain);
+      purrGain.connect(ctx.destination);
+
+      purrOsc.start(now);
+      purrMod.start(now);
+      purrOsc.stop(now + 0.52);
+      purrMod.stop(now + 0.52);
+
+      // 2. Star Polish Chime Finish
+      const tSparkle = now + 0.38;
+      [1174.66, 1479.98, 1760.0, 2349.32].forEach((freq, idx) => {
+        const nt = tSparkle + idx * 0.05;
+        const o = ctx.createOscillator();
+        const gn = ctx.createGain();
+        o.type = "sine";
+        o.frequency.setValueAtTime(freq, nt);
+        gn.gain.setValueAtTime(0.0001, nt);
+        gn.gain.exponentialRampToValueAtTime(0.12, nt + 0.008);
+        gn.gain.exponentialRampToValueAtTime(0.0001, nt + 0.32);
+        o.connect(gn);
+        gn.connect(ctx.destination);
+        o.start(nt);
+        o.stop(nt + 0.34);
+      });
+    },
+  },
+  {
+    id: "paper-tidy",
+    name: "Crisp Paper Slide & Snap",
+    description: "Satisfying friction slide of organizing fresh parchment with a tactile wooden box snap",
+    tag: "Tactile",
+    play: (ctx, now) => {
+      const bufferSize = Math.floor(ctx.sampleRate * 0.8);
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+
+      // 1. Paper Sliding Friction
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.Q.setValueAtTime(4.0, now);
+      f.frequency.setValueAtTime(1200, now);
+      f.frequency.exponentialRampToValueAtTime(3200, now + 0.18);
+      f.frequency.exponentialRampToValueAtTime(900, now + 0.32);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.14, now + 0.12);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.34);
+      src.connect(f);
+      f.connect(g);
+      g.connect(ctx.destination);
+      src.start(now);
+      src.stop(now + 0.35);
+
+      // 2. Neat Box Snap Thud
+      const tSnap = now + 0.28;
+      const snapOsc = ctx.createOscillator();
+      const snapGain = ctx.createGain();
+      snapOsc.type = "triangle";
+      snapOsc.frequency.setValueAtTime(340, tSnap);
+      snapOsc.frequency.exponentialRampToValueAtTime(110, tSnap + 0.04);
+      snapGain.gain.setValueAtTime(0.0001, tSnap);
+      snapGain.gain.exponentialRampToValueAtTime(0.24, tSnap + 0.003);
+      snapGain.gain.exponentialRampToValueAtTime(0.0001, tSnap + 0.07);
+      snapOsc.connect(snapGain);
+      snapGain.connect(ctx.destination);
+      snapOsc.start(tSnap);
+      snapOsc.stop(tSnap + 0.08);
+
+      // 3. High crisp tick
+      const tickOsc = ctx.createOscillator();
+      const tickGain = ctx.createGain();
+      tickOsc.type = "sine";
+      tickOsc.frequency.setValueAtTime(1864, tSnap + 0.02);
+      tickGain.gain.setValueAtTime(0.0001, tSnap + 0.02);
+      tickGain.gain.exponentialRampToValueAtTime(0.16, tSnap + 0.024);
+      tickGain.gain.exponentialRampToValueAtTime(0.0001, tSnap + 0.12);
+      tickOsc.connect(tickGain);
+      tickGain.connect(ctx.destination);
+      tickOsc.start(tSnap + 0.02);
+      tickOsc.stop(tSnap + 0.13);
+    },
+  },
+  {
+    id: "zen-singing-bowl",
+    name: "Zen Singing Bowl",
+    description: "Resonant Tibetan singing bowl harmonics (432Hz) with long meditative decay",
+    tag: "Mindful",
+    play: (ctx, now) => {
+      // Tibetan Bowl Harmonics: Fundamental 432Hz + 864Hz + 1296Hz + 2160Hz
+      const partials = [
+        { freq: 432.0, gain: 0.18, decay: 0.85 },
+        { freq: 864.0, gain: 0.12, decay: 0.65 },
+        { freq: 1296.0, gain: 0.08, decay: 0.45 },
+        { freq: 2160.0, gain: 0.04, decay: 0.35 },
+      ];
+
+      partials.forEach(({ freq, gain, decay }) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(gain, now + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + decay);
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + decay + 0.02);
+      });
+    },
+  },
+  {
+    id: "cosmic-stardust",
+    name: "Cosmic Stardust Glissando",
+    description: "Luminous celestial synth arpeggio ascending into starry harmonic rings",
+    tag: "Celestial",
+    play: (ctx, now) => {
+      // Rising starry arpeggios
+      const notes = [659.25, 830.61, 987.77, 1318.51, 1661.22, 1975.53, 2637.02];
+      notes.forEach((freq, idx) => {
+        const nt = now + idx * 0.055;
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        osc1.type = "sine";
+        osc2.type = "triangle";
+        osc1.frequency.setValueAtTime(freq, nt);
+        osc2.frequency.setValueAtTime(freq * 1.003, nt); // Detuned chorus sheen
+
+        g.gain.setValueAtTime(0.0001, nt);
+        g.gain.exponentialRampToValueAtTime(0.12, nt + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, nt + 0.4);
+
+        osc1.connect(g);
+        osc2.connect(g);
+        g.connect(ctx.destination);
+
+        osc1.start(nt);
+        osc2.start(nt);
+        osc1.stop(nt + 0.42);
+        osc2.stop(nt + 0.42);
+      });
+    },
+  },
+  {
+    id: "bamboo-cascade",
+    name: "Bamboo Windchimes",
+    description: "Organic pentatonic bamboo chimes rustling peacefully in a garden breeze",
+    tag: "Organic",
+    play: (ctx, now) => {
+      // Natural Japanese pentatonic scale (Insen/Hirajoshi inspired)
+      const chimes = [587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66];
+      chimes.forEach((freq, idx) => {
+        const jitter = (Math.random() - 0.5) * 0.03;
+        const nt = now + idx * 0.065 + jitter;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        osc.type = idx % 2 === 0 ? "triangle" : "sine";
+        osc.frequency.setValueAtTime(freq, nt);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.99, nt + 0.2);
+
+        g.gain.setValueAtTime(0.0001, nt);
+        g.gain.exponentialRampToValueAtTime(0.14, nt + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, nt + 0.35);
+
+        osc.connect(g);
+        g.connect(ctx.destination);
+
+        osc.start(nt);
+        osc.stop(nt + 0.36);
+      });
+    },
+  },
+  {
+    id: "crystal-cavern",
+    name: "Crystal Cavern Shimmer",
+    description: "Delicate glass droplet reverberations inside an ambient cavern",
+    tag: "Ethereal",
+    play: (ctx, now) => {
+      // Droplet hits followed by crystalline shimmer echoes
+      const drops = [
+        { f: 1200, t: now },
+        { f: 1600, t: now + 0.1 },
+        { f: 2100, t: now + 0.22 },
+        { f: 2800, t: now + 0.34 },
+      ];
+
+      drops.forEach(({ f, t }) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(f, t);
+        osc.frequency.exponentialRampToValueAtTime(f * 0.85, t + 0.06);
+
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.15, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+
+        osc.connect(g);
+        g.connect(ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.4);
       });
     },
   },
@@ -604,3 +845,488 @@ export function playSweepSound(customTidyProfileId?: string) {
     console.debug("Audio playback ignored:", err);
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   3. DEDICATED FOCUS & POMODORO ALARM SOUNDSCAPES (8 Options)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+export interface FocusAlarmDef {
+  id: string;
+  name: string;
+  description: string;
+  tag: string;
+  play: (ctx: AudioContext, now: number) => void;
+}
+
+export const FOCUS_ALARM_PROFILES: FocusAlarmDef[] = [
+  {
+    id: "temple-gong",
+    name: "Tibetan Temple Gong & Om",
+    description: "Deep 108Hz resonant bronze gong with shimmering sub-bass and 2.5s meditative decay",
+    tag: "Zen",
+    play: (ctx, now) => {
+      // 1. Deep fundamental gong strike (108Hz + 216Hz + 324Hz)
+      const partials = [
+        { freq: 108, gain: 0.35, decay: 2.4 },
+        { freq: 216, gain: 0.22, decay: 1.8 },
+        { freq: 324, gain: 0.15, decay: 1.4 },
+        { freq: 540, gain: 0.08, decay: 0.9 },
+      ];
+
+      partials.forEach(({ freq, gain, decay }) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.985, now + decay);
+
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(gain, now + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + decay);
+
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + decay + 0.05);
+      });
+
+      // 2. Shimmering high bronze strike overtone
+      const highOsc = ctx.createOscillator();
+      const highGain = ctx.createGain();
+      highOsc.type = "triangle";
+      highOsc.frequency.setValueAtTime(840, now);
+      highGain.gain.setValueAtTime(0.0001, now);
+      highGain.gain.exponentialRampToValueAtTime(0.12, now + 0.005);
+      highGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+      highOsc.connect(highGain);
+      highGain.connect(ctx.destination);
+      highOsc.start(now);
+      highOsc.stop(now + 0.48);
+    },
+  },
+  {
+    id: "sanctuary-bells",
+    name: "Forest Sanctuary Bells",
+    description: "Triple-harmonic monastery bells in major harmony (528Hz, 660Hz, 792Hz)",
+    tag: "Sacred",
+    play: (ctx, now) => {
+      const bells = [
+        { freq: 528.0, delay: 0 },
+        { freq: 660.0, delay: 0.12 },
+        { freq: 792.0, delay: 0.26 },
+        { freq: 1056.0, delay: 0.42 },
+      ];
+
+      bells.forEach(({ freq, delay }) => {
+        const t = now + delay;
+        const o1 = ctx.createOscillator();
+        const o2 = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        o1.type = "sine";
+        o2.type = "sine";
+        o1.frequency.setValueAtTime(freq, t);
+        o2.frequency.setValueAtTime(freq * 2.004, t); // Bell sparkle partial
+
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.16, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+
+        o1.connect(g);
+        o2.connect(g);
+        g.connect(ctx.destination);
+
+        o1.start(t);
+        o2.start(t);
+        o1.stop(t + 0.95);
+        o2.stop(t + 0.95);
+      });
+    },
+  },
+  {
+    id: "celestial-harp",
+    name: "Celestial Harp Arpeggio",
+    description: "Lush 7-note ascending Celtic harp glissando with sparkling acoustic resonance",
+    tag: "Ethereal",
+    play: (ctx, now) => {
+      const notes = [293.66, 369.99, 440.0, 554.37, 659.25, 880.0, 1108.73];
+      notes.forEach((freq, idx) => {
+        const t = now + idx * 0.07;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, t);
+
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.15, t + 0.006);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.68);
+      });
+    },
+  },
+  {
+    id: "westminster-chime",
+    name: "Vintage Westminster Chime",
+    description: "Classic 4-tone clock tower chime melody ringing in peaceful harmony",
+    tag: "Classic",
+    play: (ctx, now) => {
+      // Westminster 4-note motif: G#4, F#4, E4, B3
+      const notes = [
+        { f: 415.3, delay: 0 },
+        { f: 369.99, delay: 0.32 },
+        { f: 329.63, delay: 0.64 },
+        { f: 246.94, delay: 0.96 },
+      ];
+
+      notes.forEach(({ f, delay }) => {
+        const t = now + delay;
+        const o = ctx.createOscillator();
+        const overtone = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        o.type = "sine";
+        overtone.type = "triangle";
+        o.frequency.setValueAtTime(f, t);
+        overtone.frequency.setValueAtTime(f * 2.76, t);
+
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.18, t + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+
+        o.connect(g);
+        overtone.connect(g);
+        g.connect(ctx.destination);
+
+        o.start(t);
+        overtone.start(t);
+        o.stop(t + 0.88);
+        overtone.stop(t + 0.88);
+      });
+    },
+  },
+  {
+    id: "lofi-rhodes",
+    name: "Lo-Fi Ambient Rhodes",
+    description: "Warm vintage electric piano major 9th chord with nostalgic vinyl softness",
+    tag: "Warm",
+    play: (ctx, now) => {
+      // F Major 9th Chord: F3, A3, C4, E4, G4
+      const chord = [174.61, 220.0, 261.63, 329.63, 392.0];
+      chord.forEach((freq, idx) => {
+        const t = now + idx * 0.025; // Gentle strum spread
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.998, t + 1.2);
+
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.11, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 1.25);
+      });
+    },
+  },
+  {
+    id: "solfeggio-528",
+    name: "528Hz Solfeggio Golden Tone",
+    description: "Pure harmonic healing frequency (528Hz) with golden ratio octave aura",
+    tag: "Healing",
+    play: (ctx, now) => {
+      [
+        { f: 528.0, g: 0.22, d: 1.8 },
+        { f: 1056.0, g: 0.12, d: 1.4 },
+        { f: 1584.0, g: 0.06, d: 0.9 },
+      ].forEach(({ f, g, d }) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(f, now);
+
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(g, now + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + d);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + d + 0.05);
+      });
+    },
+  },
+  {
+    id: "shakuhachi-chime",
+    name: "Zen Shakuhachi Breath",
+    description: "Airy bamboo flute breath swell followed by resonant crystal dew-drops",
+    tag: "Organic",
+    play: (ctx, now) => {
+      // 1. Airy breath swell
+      const bufferSize = Math.floor(ctx.sampleRate * 0.7);
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const output = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.Q.setValueAtTime(6.0, now);
+      f.frequency.setValueAtTime(440, now);
+      f.frequency.exponentialRampToValueAtTime(880, now + 0.3);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.12, now + 0.2);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+      src.connect(f);
+      f.connect(g);
+      g.connect(ctx.destination);
+      src.start(now);
+      src.stop(now + 0.58);
+
+      // 2. Flute melodic note + dew drop
+      const tChime = now + 0.25;
+      [587.33, 880.0, 1174.66].forEach((freq, idx) => {
+        const nt = tChime + idx * 0.09;
+        const o = ctx.createOscillator();
+        const gn = ctx.createGain();
+        o.type = "sine";
+        o.frequency.setValueAtTime(freq, nt);
+        gn.gain.setValueAtTime(0.0001, nt);
+        gn.gain.exponentialRampToValueAtTime(0.14, nt + 0.01);
+        gn.gain.exponentialRampToValueAtTime(0.0001, nt + 0.45);
+        o.connect(gn);
+        gn.connect(ctx.destination);
+        o.start(nt);
+        o.stop(nt + 0.48);
+      });
+    },
+  },
+  {
+    id: "sunrise-marimba",
+    name: "Sunrise Acoustic Marimba",
+    description: "Warm, uplifting 4-note acoustic wooden marimba motif (C5, E5, G5, C6)",
+    tag: "Joyful",
+    play: (ctx, now) => {
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      notes.forEach((freq, idx) => {
+        const t = now + idx * 0.08;
+        const o1 = ctx.createOscillator();
+        const o2 = ctx.createOscillator();
+        const g = ctx.createGain();
+
+        o1.type = "triangle";
+        o2.type = "sine";
+        o1.frequency.setValueAtTime(freq, t);
+        o2.frequency.setValueAtTime(freq * 3, t); // Marimba harmonic
+
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.18, t + 0.004);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+
+        o1.connect(g);
+        o2.connect(g);
+        g.connect(ctx.destination);
+
+        o1.start(t);
+        o2.start(t);
+        o1.stop(t + 0.38);
+        o2.stop(t + 0.38);
+      });
+    },
+  },
+];
+
+/**
+ * Plays the chosen focus completion alarm soundscape.
+ */
+export function playFocusAlarmSound(alarmId?: string) {
+  if (!soundEnabled) return;
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const targetId = alarmId || "temple-gong";
+    const profile = FOCUS_ALARM_PROFILES.find((p) => p.id === targetId) || FOCUS_ALARM_PROFILES[0];
+    profile.play(ctx, ctx.currentTime);
+  } catch (err) {
+    console.debug("Focus alarm audio playback ignored:", err);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   4. PROCEDURAL AMBIENT BACKGROUND SOUND GENERATOR (Offline Web Audio)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+export type AmbientSoundType = "none" | "rain" | "fire" | "forest" | "brown-noise";
+
+class AmbientSoundEngine {
+  private currentType: AmbientSoundType = "none";
+  private isPlaying = false;
+  private volume = 0.35;
+  private gainNode: GainNode | null = null;
+  private sourceNodes: (AudioNode | number)[] = [];
+
+  public start(type: AmbientSoundType, volume = 0.35) {
+    this.stop();
+    if (type === "none") return;
+
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    this.currentType = type;
+    this.volume = volume;
+    this.isPlaying = true;
+
+    this.gainNode = ctx.createGain();
+    this.gainNode.gain.setValueAtTime(volume * 0.35, ctx.currentTime);
+    this.gainNode.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+
+    if (type === "brown-noise") {
+      // 5-second seamless Brownian noise buffer loop
+      const bufferSize = ctx.sampleRate * 5;
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      let lastOut = 0.0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        data[i] = (lastOut + 0.02 * white) / 1.02;
+        lastOut = data[i];
+        data[i] *= 3.5; // Gain compensation
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      src.loop = true;
+      src.connect(this.gainNode);
+      src.start(now);
+      this.sourceNodes.push(src);
+    } else if (type === "rain") {
+      // Rain: filtered pink noise with dynamic lowpass modulation
+      const bufferSize = ctx.sampleRate * 4;
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      let b0 = 0, b1 = 0, b2 = 0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + white * 0.0555179;
+        b1 = 0.99332 * b1 + white * 0.0750759;
+        b2 = 0.96900 * b2 + white * 0.1538520;
+        data[i] = (b0 + b1 + b2 + white * 0.5362) * 0.15;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      src.loop = true;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(1400, now);
+
+      src.connect(filter);
+      filter.connect(this.gainNode);
+      src.start(now);
+      this.sourceNodes.push(src);
+    } else if (type === "fire") {
+      // Fire: warm low-frequency rumble + random crackle generator
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(55, now);
+      const oscGain = ctx.createGain();
+      oscGain.gain.setValueAtTime(0.12, now);
+      osc.connect(oscGain);
+      oscGain.connect(this.gainNode);
+      osc.start(now);
+      this.sourceNodes.push(osc);
+
+      // Periodic gentle ember pops
+      const intervalId = window.setInterval(() => {
+        if (!this.isPlaying || !this.gainNode) return;
+        const actx = getAudioContext();
+        if (!actx) return;
+        const t = actx.currentTime;
+        const pop = actx.createOscillator();
+        const pGain = actx.createGain();
+        pop.type = "sine";
+        pop.frequency.setValueAtTime(1200 + Math.random() * 800, t);
+        pGain.gain.setValueAtTime(0.0001, t);
+        pGain.gain.exponentialRampToValueAtTime(0.06 + Math.random() * 0.05, t + 0.003);
+        pGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+        pop.connect(pGain);
+        pGain.connect(this.gainNode);
+        pop.start(t);
+        pop.stop(t + 0.04);
+      }, 350);
+      this.sourceNodes.push(intervalId as unknown as AudioNode);
+    } else if (type === "forest") {
+      // Forest Breeze: two detuned wind oscillators with gentle resonant filtering
+      const bufferSize = ctx.sampleRate * 4;
+      const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      src.loop = true;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.Q.setValueAtTime(1.8, now);
+      filter.frequency.setValueAtTime(520, now);
+
+      src.connect(filter);
+      filter.connect(this.gainNode);
+      src.start(now);
+      this.sourceNodes.push(src);
+    }
+  }
+
+  public setVolume(vol: number) {
+    this.volume = Math.max(0, Math.min(1, vol));
+    const ctx = getAudioContext();
+    if (ctx && this.gainNode) {
+      this.gainNode.gain.setValueAtTime(this.volume * 0.35, ctx.currentTime);
+    }
+  }
+
+  public stop() {
+    this.isPlaying = false;
+    this.currentType = "none";
+    this.sourceNodes.forEach((node) => {
+      if (typeof node === "number") {
+        clearInterval(node);
+      } else if ("stop" in node && typeof node.stop === "function") {
+        try {
+          node.stop();
+        } catch {
+          // Ignored
+        }
+      }
+    });
+    this.sourceNodes = [];
+    if (this.gainNode) {
+      this.gainNode.disconnect();
+      this.gainNode = null;
+    }
+  }
+
+  public getCurrentType(): AmbientSoundType {
+    return this.currentType;
+  }
+}
+
+export const ambientSound = new AmbientSoundEngine();
+
