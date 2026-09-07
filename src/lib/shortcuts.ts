@@ -178,17 +178,19 @@ export function getSavedShortcuts(): Record<string, ShortcutCombo> {
   }
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Record<string, ShortcutCombo>;
-      for (const [id, combo] of Object.entries(parsed)) {
-        if (combo && combo.key) {
-          result[id] = combo;
+    if (typeof localStorage !== "undefined") {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, ShortcutCombo>;
+        for (const [id, combo] of Object.entries(parsed)) {
+          if (combo && combo.key) {
+            result[id] = combo;
+          }
         }
       }
     }
-  } catch (err) {
-    console.warn("Could not load custom shortcuts from localStorage:", err);
+  } catch {
+    // Ignore storage access errors in headless/test environments
   }
 
   return result;
