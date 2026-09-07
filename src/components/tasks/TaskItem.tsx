@@ -22,7 +22,7 @@ import {
 import { cn } from "../../lib/utils";
 import { DatePicker } from "../ui/DatePicker";
 import type { Task, Subtask } from "./TasksView";
-import { getProjectColorDef } from "../projects/ProjectsView";
+import { getProjectColorDef } from "../projects/projectColors";
 import { deconstructWithSammi } from "../../lib/ai/engine";
 import { getAiConfig, saveAiConfig } from "../../lib/ai/storage";
 import { playTaskPopSound } from "../../lib/sound";

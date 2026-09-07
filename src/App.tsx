@@ -2,15 +2,17 @@ import React, { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Sidebar, TabId } from "./components/layout/Sidebar";
 import { TasksView, type Task } from "./components/tasks/TasksView";
-import { ProjectsView, type Project } from "./components/projects/ProjectsView";
-import { NotesView } from "./components/notes/NotesView";
+import type { Project } from "./components/projects/ProjectsView";
 import type { Note } from "./components/notes/NoteEditor";
-import { CalendarView } from "./components/calendar/CalendarView";
-import { FocusView } from "./components/focus/FocusView";
-import { AiView } from "./components/ai/AiView";
-import { AnalyticsView } from "./components/analytics/AnalyticsView";
-import { SettingsView } from "./components/settings/SettingsView";
-import { ResourcesView } from "./components/resources/ResourcesView";
+
+const ProjectsView = React.lazy(() => import("./components/projects/ProjectsView").then((m) => ({ default: m.ProjectsView })));
+const NotesView = React.lazy(() => import("./components/notes/NotesView").then((m) => ({ default: m.NotesView })));
+const CalendarView = React.lazy(() => import("./components/calendar/CalendarView").then((m) => ({ default: m.CalendarView })));
+const FocusView = React.lazy(() => import("./components/focus/FocusView").then((m) => ({ default: m.FocusView })));
+const AiView = React.lazy(() => import("./components/ai/AiView").then((m) => ({ default: m.AiView })));
+const AnalyticsView = React.lazy(() => import("./components/analytics/AnalyticsView").then((m) => ({ default: m.AnalyticsView })));
+const SettingsView = React.lazy(() => import("./components/settings/SettingsView").then((m) => ({ default: m.SettingsView })));
+const ResourcesView = React.lazy(() => import("./components/resources/ResourcesView").then((m) => ({ default: m.ResourcesView })));
 import { CommandPalette } from "./components/command/CommandPalette";
 import { QuickTaskModal } from "./components/common/QuickTaskModal";
 import { ContactModal } from "./components/common/ContactModal";
@@ -1035,37 +1037,46 @@ export default function App() {
             <TasksView workspaceId={activeWorkspace?.id || "ws-default-primary"} initialViewMode="kanban" />
           )}
 
-          {activeTab === "projects" && (
-            <ProjectsView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
-          )}
+          <React.Suspense
+            fallback={
+              <div className="w-full h-64 flex flex-col items-center justify-center space-y-2 select-none animate-fade-in">
+                <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                <span className="text-xs text-muted-foreground font-mono">Loading workspace view...</span>
+              </div>
+            }
+          >
+            {activeTab === "projects" && (
+              <ProjectsView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
+            )}
 
-          {activeTab === "notes" && (
-            <NotesView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
-          )}
+            {activeTab === "notes" && (
+              <NotesView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
+            )}
 
-          {activeTab === "calendar" && (
-            <CalendarView workspaceId={activeWorkspace?.id || "ws-default-primary"} projects={projects} />
-          )}
+            {activeTab === "calendar" && (
+              <CalendarView workspaceId={activeWorkspace?.id || "ws-default-primary"} projects={projects} />
+            )}
 
-          {activeTab === "focus" && (
-            <FocusView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
-          )}
+            {activeTab === "focus" && (
+              <FocusView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
+            )}
 
-          {activeTab === "ai" && (
-            <AiView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
-          )}
+            {activeTab === "ai" && (
+              <AiView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
+            )}
 
-          {activeTab === "analytics" && (
-            <AnalyticsView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
-          )}
+            {activeTab === "analytics" && (
+              <AnalyticsView workspaceId={activeWorkspace?.id || "ws-default-primary"} />
+            )}
 
-          {activeTab === "settings" && (
-            <SettingsView />
-          )}
+            {activeTab === "settings" && (
+              <SettingsView />
+            )}
 
-          {activeTab === "resources" && (
-            <ResourcesView />
-          )}
+            {activeTab === "resources" && (
+              <ResourcesView />
+            )}
+          </React.Suspense>
 
           {![
             "dashboard",
