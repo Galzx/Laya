@@ -4,7 +4,6 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   AlertCircle,
   Archive,
-  Cat,
   Inbox,
   Leaf,
   Plus,
@@ -19,6 +18,7 @@ import { cn } from "../../lib/utils";
 import { DatePicker } from "../ui/DatePicker";
 import { playTaskPopSound, playSweepSound } from "../../lib/sound";
 import { TaskItem } from "./TaskItem";
+import { CatHelper } from "../common/CatHelper";
 import { KanbanBoard } from "../kanban/KanbanBoard";
 import type { Project } from "../projects/ProjectsView";
 
@@ -752,7 +752,7 @@ export const TasksView: React.FC<TasksViewProps> = ({ workspaceId, initialViewMo
             ) : filter === "recovery" ? (
               <Leaf className="h-6 w-6 text-emerald-500" />
             ) : filter === "completed" ? (
-              <Cat className="h-6 w-6 text-primary" strokeWidth={1.5} />
+              <Sparkles className="h-6 w-6 text-primary" />
             ) : filter === "archive" ? (
               <Archive className="h-6 w-6 text-muted-foreground" />
             ) : (
@@ -832,43 +832,8 @@ export const TasksView: React.FC<TasksViewProps> = ({ workspaceId, initialViewMo
               onClick={(e) => e.stopPropagation()}
             >
               {/* Cozy Unboxed Stage with Cat & Celebratory Pop Finish */}
-              <div className="relative mx-auto w-32 h-28 flex items-center justify-center">
-                {/* Soft floor glow circle */}
-                <div
-                  className={cn(
-                    "absolute bottom-2 inset-x-4 h-6 rounded-full bg-primary/10 transition-all duration-500 blur-xs",
-                    clearingCompleted && "bg-primary/25 scale-125"
-                  )}
-                />
-
-                {/* Sweeping Dust Swirl Particles (active during initial sweeps) */}
-                {clearingCompleted && (
-                  <>
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center animate-dust-swirl">
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary/40 absolute -top-1 -left-2" />
-                      <span className="w-2 h-2 rounded-full bg-muted-foreground/30 absolute bottom-3 -right-3" />
-                      <span className="w-1 h-1 rounded-full bg-primary/60 absolute top-5 -right-1" />
-                    </div>
-
-                    {/* Pop sparkles that burst outward near completion */}
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center animate-cat-pop-burst">
-                      <Sparkles className="h-4 w-4 text-amber-400 absolute -top-3 right-0" />
-                      <Sparkles className="h-3.5 w-3.5 text-pink-400 absolute -bottom-1 -left-3" />
-                      <Sparkles className="h-3 w-3 text-emerald-400 absolute top-1 -left-4" />
-                    </div>
-                  </>
-                )}
-
-                {/* Spring-animated Cat SVG stroke icon with clean floor shadow */}
-                <div
-                  className={cn(
-                    "relative z-10 transition-transform duration-300 ease-bounce flex flex-col items-center",
-                    clearingCompleted ? "animate-cat-sweep" : "animate-gentle-float"
-                  )}
-                >
-                  <Cat className="h-16 w-16 text-primary drop-shadow-sm" strokeWidth={1.5} />
-                </div>
-              </div>
+              {/* Animated Cat Helper with broom, progress arc & particles */}
+              <CatHelper sweeping={clearingCompleted} />
 
               <div className="space-y-1.5">
                 <h3 className="text-base font-semibold tracking-tight text-foreground">

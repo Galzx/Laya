@@ -120,92 +120,115 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   100% { transform: scale(1); }
 }
 
-/* ─── Cat sweeping rhythm with satisfying celebration pop at the end ─ */
-@keyframes cat-cleaning-sweep {
+/* ─── Cat sweep sequence: prowl in, sweep x3, victory leap, land ─── */
+@keyframes cat-sweep-sequence {
+  /* Phase 1: Prowl in from below */
   0% {
-    transform: translateY(0) rotate(0deg) scale(1);
+    transform: translateY(24px) scale(0.9) rotate(2deg);
+    opacity: 0.3;
     filter: drop-shadow(0 0 0px transparent);
   }
-  16% {
-    transform: translateX(-20px) translateY(8px) rotate(-16deg) scale(0.96);
-  }
-  38% {
-    transform: translateX(22px) translateY(-3px) rotate(18deg) scale(1.04);
-  }
-  56% {
-    transform: translateX(-14px) translateY(8px) rotate(-14deg) scale(0.97);
-  }
-  72% {
-    transform: translateX(12px) translateY(-1px) rotate(12deg) scale(1.02);
-  }
-  80% {
-    /* Crouch anticipation */
-    transform: translateX(0px) translateY(4px) rotate(0deg) scale(0.92);
-    filter: drop-shadow(0 0 0px transparent);
-  }
-  88% {
-    /* The Satisfying Celebration POP! */
-    transform: translateX(0px) translateY(-16px) rotate(4deg) scale(1.28);
-    filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.6));
-  }
-  94% {
-    /* Soft bounce landing */
-    transform: translateX(0px) translateY(2px) rotate(-1deg) scale(0.98);
-    filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.3));
-  }
-  100% {
-    /* Proud, calm finish */
-    transform: translateY(0) rotate(0deg) scale(1);
-    filter: drop-shadow(0 0 0px transparent);
-  }
-}
-
-/* ─── Celebratory Star Burst on Cat Pop ──────────────────────────── */
-@keyframes cat-pop-star-burst {
-  0%, 75% {
-    opacity: 0;
-    transform: scale(0.3) rotate(0deg);
-  }
-  88% {
+  10% {
+    transform: translateY(4px) scale(0.98) rotate(1deg);
     opacity: 1;
-    transform: scale(1.25) rotate(45deg);
+  }
+  14% {
+    transform: translateY(0) scale(1) rotate(0deg);
+    opacity: 1;
+    filter: drop-shadow(0 0 0px transparent);
+  }
+  /* Phase 2: Rhythmic broom sweeps (3 full cycles) */
+  22% { transform: translateX(-16px) rotate(-8deg) scale(1); }
+  30% { transform: translateX(16px) rotate(8deg) scale(1.02); }
+  38% { transform: translateX(-18px) rotate(-10deg) scale(1); }
+  46% { transform: translateX(18px) rotate(10deg) scale(1.03); }
+  54% { transform: translateX(-14px) rotate(-7deg) scale(1); }
+  62% { transform: translateX(14px) rotate(7deg) scale(1.01); }
+  /* Phase 2 end: return center */
+  71% {
+    transform: translateX(0) rotate(0deg) scale(1);
+    filter: drop-shadow(0 0 0px transparent);
+  }
+  /* Phase 3: Victory leap - crouch anticipation */
+  76% {
+    transform: translateY(6px) scale(0.88) rotate(0deg);
+    filter: drop-shadow(0 0 0px transparent);
+  }
+  /* Phase 3: Spring upward */
+  84% {
+    transform: translateY(-20px) scale(1.18) rotate(3deg);
+    filter: drop-shadow(0 0 18px rgba(16, 185, 129, 0.6));
+  }
+  /* Phase 4: Soft bounce landing */
+  90% {
+    transform: translateY(3px) scale(0.96) rotate(-1deg);
+    filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.25));
+  }
+  95% {
+    transform: translateY(-2px) scale(1.02) rotate(0.5deg);
   }
   100% {
-    opacity: 0;
-    transform: scale(1.6) translateY(-10px) rotate(90deg);
+    transform: translateY(0) scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 0px transparent);
   }
 }
 
-/* ─── Sweeping broom/dust swirl ──────────────────────────────────── */
-@keyframes broom-dust-swirl {
+/* ─── Cat idle: gentle float with subtle body rock ───────────────── */
+@keyframes cat-idle-sway {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25%      { transform: translateY(-3px) rotate(-1.5deg); }
+  50%      { transform: translateY(-5px) rotate(0deg); }
+  75%      { transform: translateY(-3px) rotate(1.5deg); }
+}
+
+/* ─── Tail sway during sweeping ──────────────────────────────────── */
+@keyframes tail-sway {
+  0%, 100% { transform: rotate(0deg); transform-origin: 54px 58px; }
+  25%      { transform: rotate(8deg); transform-origin: 54px 58px; }
+  50%      { transform: rotate(-6deg); transform-origin: 54px 58px; }
+  75%      { transform: rotate(10deg); transform-origin: 54px 58px; }
+}
+
+/* ─── Sparkle particles orbit outward during victory ─────────────── */
+@keyframes sparkle-orbit {
   0% {
     opacity: 0;
-    transform: scale(0.6) rotate(-20deg);
-  }
-  25% {
-    opacity: 0.8;
-    transform: scale(1.1) translateX(-14px) rotate(15deg);
+    transform: scale(0) translateY(0);
   }
   60% {
-    opacity: 1;
-    transform: scale(1.2) translateX(16px) rotate(-15deg);
+    opacity: 0;
+    transform: scale(0) translateY(0);
   }
-  85% {
-    opacity: 0.7;
-    transform: scale(1.3) translateY(-8px) rotate(25deg);
+  75% {
+    opacity: 1;
+    transform: scale(1.2) translateY(-28px);
   }
   100% {
     opacity: 0;
-    transform: scale(1.4) translateY(-14px) rotate(40deg);
+    transform: scale(0.6) translateY(-44px);
   }
 }
 
-/* ─── Cat idle wiggle ────────────────────────────────────────────── */
-@keyframes cat-tidy {
-  0%, 100% { transform: translateX(-8px) translateY(0) rotate(-4deg); }
-  25%      { transform: translateX(-2px) translateY(-2px) rotate(-1deg); }
-  50%      { transform: translateX(8px) translateY(0) rotate(4deg); }
-  75%      { transform: translateX(2px) translateY(-2px) rotate(1deg); }
+/* ─── Victory burst: delayed star pop near the leap ──────────────── */
+@keyframes victory-burst {
+  0%, 70% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  82% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.8) translateY(-6px);
+  }
+}
+
+/* ─── Circular progress arc fill ─────────────────────────────────── */
+@keyframes progress-arc-draw {
+  0%   { stroke-dashoffset: 327; }
+  100% { stroke-dashoffset: 0; }
 }
 
 /* ─── Task card silhouettes vanish smoothly ──────────────────────── */
@@ -329,10 +352,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .animate-task-check       { animation: task-check-pop 240ms cubic-bezier(0.16, 1, 0.3, 1); }
 .animate-task-glow        { animation: task-complete-glow 380ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 .animate-task-depart      { animation: task-card-depart 380ms cubic-bezier(0.16, 1, 0.3, 1) forwards; overflow: hidden !important; pointer-events: none; }
-.animate-cat-tidy         { animation: cat-tidy 420ms ease-in-out infinite; }
-.animate-cat-sweep        { animation: cat-cleaning-sweep 1400ms cubic-bezier(0.25, 1, 0.5, 1) both; }
-.animate-cat-pop-burst    { animation: cat-pop-star-burst 1400ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-.animate-dust-swirl       { animation: broom-dust-swirl 1400ms ease-in-out both; }
+.animate-cat-idle         { animation: cat-idle-sway 3s ease-in-out infinite; }
+.animate-cat-sweep        { animation: cat-sweep-sequence 1400ms cubic-bezier(0.25, 1, 0.5, 1) both; }
+.animate-tail-sway        { animation: tail-sway 350ms ease-in-out infinite; }
+.animate-sparkle-orbit    { animation: sparkle-orbit 1400ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-victory-burst    { animation: victory-burst 1400ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-progress-arc     { animation: progress-arc-draw 1400ms linear both; }
 .animate-task-vanish      { animation: task-card-vanish 450ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 .animate-sparkle          { animation: sparkle-pop 550ms ease-out forwards; }
 .animate-smooth-in        { animation: fade-in-up 240ms cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -350,8 +375,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-task-check,
-  .animate-cat-tidy,
+  .animate-cat-idle,
   .animate-cat-sweep,
+  .animate-tail-sway,
+  .animate-sparkle-orbit,
+  .animate-victory-burst,
+  .animate-progress-arc,
   .animate-task-vanish,
   .animate-sparkle,
   .animate-smooth-in,

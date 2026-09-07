@@ -10,8 +10,12 @@ import { FocusView } from "./components/focus/FocusView";
 import { AiView } from "./components/ai/AiView";
 import { AnalyticsView } from "./components/analytics/AnalyticsView";
 import { SettingsView } from "./components/settings/SettingsView";
+import { ResourcesView } from "./components/resources/ResourcesView";
 import { CommandPalette } from "./components/command/CommandPalette";
 import { QuickTaskModal } from "./components/common/QuickTaskModal";
+import { ContactModal } from "./components/common/ContactModal";
+import { CookieConsent } from "./components/common/CookieConsent";
+import { NotFoundView } from "./components/common/NotFoundView";
 import { applyTheme } from "./lib/theme";
 import { setSoundProfile, setTidySoundProfile, setSoundEnabled, playTaskPopSound, playSweepSound } from "./lib/sound";
 import { matchesShortcut, getSavedShortcuts, type ShortcutCombo } from "./lib/shortcuts";
@@ -39,6 +43,8 @@ import {
   PanelLeft,
   Moon,
   ArrowUp,
+  BookMarked,
+  LifeBuoy,
 } from "lucide-react";
 import { cn } from "./lib/utils";
 
@@ -143,6 +149,13 @@ const quickLinks: {
     icon: TrendingUp,
     accentColor: "bg-teal-500/10 text-teal-600 dark:text-teal-400 group-hover:bg-teal-500 group-hover:text-white",
   },
+  {
+    id: "resources",
+    label: "Resources",
+    description: "Knowledge hub, guides, case studies & FAQ",
+    icon: BookMarked,
+    accentColor: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white",
+  },
 ];
 
 export default function App() {
@@ -158,6 +171,7 @@ export default function App() {
   const [newDashboardTaskTitle, setNewDashboardTaskTitle] = useState("");
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isQuickTaskOpen, setIsQuickTaskOpen] = useState(false);
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [shortcuts, setShortcuts] = useState<Record<string, ShortcutCombo>>(() => getSavedShortcuts());
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     return typeof window !== "undefined" && window.innerWidth < 1024;
@@ -554,6 +568,8 @@ export default function App() {
                   ? "Insights & Analytics"
                   : activeTab === "kanban"
                   ? "Kanban Board"
+                  : activeTab === "resources"
+                  ? "Knowledge & Resources Hub"
                   : activeTab}
               </span>
             </nav>
@@ -587,6 +603,17 @@ export default function App() {
               ) : (
                 <Moon className="h-3.5 w-3.5 text-indigo-400" />
               )}
+            </button>
+
+            {/* Support & Inquiries Modal Trigger */}
+            <button
+              type="button"
+              onClick={() => setIsContactModalOpen(true)}
+              className="p-1.5 rounded-xl border border-border/80 bg-background/50 hover:bg-muted/70 text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-2xs hover:border-primary/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              title="Support & Inquiries (24h response promise)"
+              aria-label="Support & Inquiries"
+            >
+              <LifeBuoy className="h-3.5 w-3.5" />
             </button>
 
             {systemStatus && !systemStatus.db_connected ? (
@@ -1035,21 +1062,101 @@ export default function App() {
           {activeTab === "settings" && (
             <SettingsView />
           )}
+
+          {activeTab === "resources" && (
+            <ResourcesView />
+          )}
+
+          {![
+            "dashboard",
+            "tasks",
+            "kanban",
+            "projects",
+            "notes",
+            "calendar",
+            "focus",
+            "ai",
+            "analytics",
+            "resources",
+            "settings",
+          ].includes(activeTab) && (
+            <NotFoundView
+              onNavigate={setActiveTab}
+              onOpenSearch={() => setIsCommandPaletteOpen(true)}
+            />
+          )}
         </div>
       </main>
 
-      {/* Floating Scroll to Top Button */}
-      {showScrollTop && (
+      {/* Floating Action Buttons */}
+      <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2.5 no-print">
+        {/* Floating Contact Launcher */}
         <button
           type="button"
-          onClick={scrollToTop}
-          className="fixed bottom-6 right-6 z-40 p-2.5 rounded-2xl bg-card/95 hover:bg-card border border-border shadow-dialog text-foreground hover:text-primary backdrop-blur-sm transition-all animate-dialog-in cursor-pointer hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 no-print"
-          title="Scroll back to top"
-          aria-label="Scroll back to top"
+          onClick={() => setIsContactModalOpen(true)}
+          className="flex items-center gap-2 px-3 py-2.5 rounded-2xl bg-card/95 hover:bg-card border border-border shadow-dialog text-foreground hover:text-primary backdrop-blur-sm transition-all animate-dialog-in cursor-pointer hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          title="Contact & Support (24h response promise)"
+          aria-label="Contact and Support"
         >
-          <ArrowUp className="h-4 w-4" />
+          <LifeBuoy className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-xs font-semibold hidden md:inline">Contact Support</span>
         </button>
-      )}
+
+        {/* Floating Scroll to Top Button */}
+        {showScrollTop && (
+          <button
+            type="button"
+            onClick={scrollToTop}
+            className="p-2.5 rounded-2xl bg-card/95 hover:bg-card border border-border shadow-dialog text-foreground hover:text-primary backdrop-blur-sm transition-all animate-dialog-in cursor-pointer hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            title="Scroll back to top"
+            aria-label="Scroll back to top"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Sticky Mobile Action CTA Bar (Visible on compact viewports <640px) */}
+      <div className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-card/95 border-t border-border backdrop-blur-md px-4 py-2 flex items-center justify-between no-print shadow-dialog">
+        <button
+          type="button"
+          onClick={() => setIsQuickTaskOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold cursor-pointer shadow-2xs"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          <span>New Task</span>
+        </button>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsCommandPaletteOpen(true)}
+            className="p-2 rounded-xl border border-border bg-background text-muted-foreground hover:text-foreground cursor-pointer"
+            title="Search workspace (Ctrl+K)"
+            aria-label="Search workspace"
+          >
+            <Search className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsContactModalOpen(true)}
+            className="p-2 rounded-xl border border-border bg-background text-muted-foreground hover:text-foreground cursor-pointer"
+            title="Help & Contact"
+            aria-label="Help and Contact"
+          >
+            <LifeBuoy className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Cookie & Data Sovereignty Notification Banner */}
+      <CookieConsent onOpenPrivacy={() => setActiveTab("resources")} />
+
+      {/* Contact & Inquiries Modal */}
+      <ContactModal
+        isOpen={isContactModalOpen}
+        onClose={() => setIsContactModalOpen(false)}
+      />
 
       <CommandPalette
         isOpen={isCommandPaletteOpen}

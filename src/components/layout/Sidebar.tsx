@@ -11,6 +11,7 @@ import {
   TrendingUp,
   Settings,
   PanelLeftClose,
+  BookMarked,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 
@@ -24,6 +25,7 @@ export type TabId =
   | "focus"
   | "ai"
   | "analytics"
+  | "resources"
   | "settings";
 
 interface SidebarProps {
@@ -50,6 +52,7 @@ const navItems: NavItem[] = [
   { id: "focus",     label: "Focus",     icon: Flame },
   { id: "ai",        label: "Sammi",     icon: Bot },
   { id: "analytics", label: "Analytics", icon: TrendingUp },
+  { id: "resources", label: "Resources", icon: BookMarked },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({

@@ -1,0 +1,30 @@
+# Laya Workspace
+
+> Laya is a sovereign local-first desktop productivity workspace powered by SQLite, Tauri Rust shell, React, and offline AI. It unifies tasks, agile kanban boards, interconnected notes, calendar schedules, focus sessions, and deterministic smart assistants in a single zero-latency desktop application.
+
+## Core Capabilities
+
+- **Tasks & Subtasks**: Hierarchical task tracking with priority tiers, due dates, project tags, and local SQLite indexing.
+- **Kanban Board**: Drag-and-drop agile board with 4 columns (To Do, In Progress, Blocked, Done) and column work-in-progress visibility.
+- **Connected Notes**: Markdown editor with auto-save, frontmatter parsing, tag filtering, word count statistics, and export to markdown files.
+- **Deep Work Focus Timer**: Pomodoro intervals and custom work timers paired with zero-latency Web Audio API synthesizers (woodblock, singing bowls, temple gongs).
+- **Projects Hub**: Multi-project tracking with color coding, notebook cover customization, and deadline scheduling.
+- **Calendar**: Month, week, and day agenda views pulling directly from local task deadlines.
+- **Sammi Smart Assistant**: Sovereign AI that operates deterministically on-device without internet access, with optional direct BYOK integration for Google Gemini or local Ollama.
+- **Analytics**: Local completion velocity, category breakdowns, and deep work time tracking computed purely from SQLite queries.
+
+## Architecture & Security Posture
+
+- **100% Local Storage**: Database resides at `%APPDATA%\com.laya.app\laya.db` using standard SQLite.
+- **Zero Telemetry**: No remote analytics pixels, no behavioral trackers, no user fingerprinting.
+- **Offline Resilience**: Complete functionality operates without an active network connection.
+- **Theme Engine**: 8 curated color schemes (Linen, Matcha, Sakura, Latte, Nordic, Midnight, Pine, Amber Night) with 12 accent overrides and instant theme switching.
+
+## Documentation & Links
+
+- Home: https://layaworkspace.org/
+- Knowledge Hub & Resources: https://layaworkspace.org/resources
+- Privacy Policy: https://layaworkspace.org/privacy
+- Terms of Service: https://layaworkspace.org/terms
+- Support: support@layaworkspace.org
+

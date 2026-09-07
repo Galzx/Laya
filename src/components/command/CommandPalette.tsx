@@ -15,6 +15,7 @@ import {
   Plus,
   ArrowRight,
   LayoutDashboard,
+  BookMarked,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { playTaskPopSound, playSweepSound } from "../../lib/sound";
@@ -278,6 +279,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       { id: "focus",     label: "Go to Focus",     icon: Flame },
       { id: "ai",        label: "Go to Sammi AI",  icon: Bot },
       { id: "analytics", label: "Go to Analytics", icon: TrendingUp },
+      { id: "resources", label: "Go to Resources & Hub", icon: BookMarked },
       { id: "settings",  label: "Go to Settings",  icon: Settings },
     ];
 

@@ -12,7 +12,6 @@ import {
   Search,
   Sparkles,
   AlertCircle,
-  Cat,
   LayoutGrid,
   Columns2,
   Columns3,
@@ -35,6 +34,7 @@ import { playTaskPopSound, playSweepSound } from "../../lib/sound";
 import type { Task, Subtask } from "../tasks/TasksView";
 import { TaskItem } from "../tasks/TaskItem";
 import { KanbanBoard } from "../kanban/KanbanBoard";
+import { CatHelper } from "../common/CatHelper";
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. TYPES & DATA INTERFACES
@@ -2708,39 +2708,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               className="bg-card border border-border rounded-2xl p-7 shadow-dialog max-w-sm w-full space-y-5 animate-dialog-in text-center relative overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="relative mx-auto w-32 h-28 flex items-center justify-center">
-                <div
-                  className={cn(
-                    "absolute bottom-2 inset-x-4 h-6 rounded-full bg-primary/10 transition-all duration-500 blur-xs",
-                    clearingCompleted && "bg-primary/25 scale-125"
-                  )}
-                />
-
-                {clearingCompleted && (
-                  <>
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center animate-dust-swirl">
-                      <span className="w-1.5 h-1.5 rounded-full bg-primary/40 absolute -top-1 -left-2" />
-                      <span className="w-2 h-2 rounded-full bg-muted-foreground/30 absolute bottom-3 -right-3" />
-                      <span className="w-1 h-1 rounded-full bg-primary/60 absolute top-5 -right-1" />
-                    </div>
-
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center animate-cat-pop-burst">
-                      <Sparkles className="h-4 w-4 text-amber-400 absolute -top-3 right-0" />
-                      <Sparkles className="h-3.5 w-3.5 text-pink-400 absolute -bottom-1 -left-3" />
-                      <Sparkles className="h-3 w-3 text-emerald-400 absolute top-1 -left-4" />
-                    </div>
-                  </>
-                )}
-
-                <div
-                  className={cn(
-                    "relative z-10 transition-transform duration-300 ease-bounce flex flex-col items-center",
-                    clearingCompleted ? "animate-cat-sweep" : "animate-gentle-float"
-                  )}
-                >
-                  <Cat className="h-16 w-16 text-primary drop-shadow-sm" strokeWidth={1.5} />
-                </div>
-              </div>
+              {/* Animated Cat Helper with broom, progress arc & particles */}
+              <CatHelper sweeping={clearingCompleted} />
 
               <div className="space-y-1.5">
                 <h3 className="text-base font-semibold tracking-tight text-foreground">

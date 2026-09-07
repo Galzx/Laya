@@ -1,0 +1,24 @@
+# robots.txt for Laya Workspace
+User-agent: *
+Allow: /
+Allow: /resources
+Allow: /tasks
+Allow: /kanban
+Allow: /projects
+Allow: /notes
+Allow: /calendar
+Allow: /focus
+Allow: /ai
+Allow: /analytics
+Allow: /privacy
+Allow: /terms
+Allow: /llms.txt
+
+# Disallow private application storage paths
+Disallow: /db/
+Disallow: /backups/
+Disallow: /api/internal/
+
+# Sitemap location
+Sitemap: https://layaworkspace.org/sitemap.xml
+
