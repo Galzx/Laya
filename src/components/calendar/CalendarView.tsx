@@ -614,7 +614,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ workspaceId, project
                         : cell.isSelected
                         ? "border-primary bg-primary/10 shadow-card ring-2 ring-primary/40"
                         : cell.isToday
-                        ? "border-amber-500/50 bg-amber-500/5 hover:bg-amber-500/10"
+                        ? "border-primary/50 bg-primary/5 hover:bg-primary/10"
                         : cell.isCurrentMonth
                         ? "border-border/70 bg-background hover:bg-muted/40 hover:border-border"
                         : "border-transparent bg-muted/20 text-muted-foreground/40 hover:bg-muted/30"
@@ -626,9 +626,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ workspaceId, project
                         className={cn(
                           "text-xs font-bold h-6 w-6 rounded-lg flex items-center justify-center transition-colors",
                           cell.isToday
-                            ? "bg-amber-500 text-white shadow-xs"
-                            : cell.isSelected
                             ? "bg-primary text-primary-foreground shadow-xs"
+                            : cell.isSelected
+                            ? "bg-primary/20 text-primary border border-primary/30 shadow-xs"
                             : cell.isCurrentMonth
                             ? "text-foreground"
                             : "text-muted-foreground/40"
@@ -736,8 +736,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ workspaceId, project
 
               <div className="flex items-center gap-2">
                 {isSelectedDateToday && (
-                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
-                    <Sun className="h-3.5 w-3.5" /> Today
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary bg-primary/10 px-2.5 py-1 rounded-xl border border-primary/20">
+                    <Sun className="h-3.5 w-3.5 text-primary" /> Today
                   </span>
                 )}
                 {selectedDateTasks.length > 0 && (
@@ -892,7 +892,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ workspaceId, project
                   isDragOver
                     ? "border-primary ring-2 ring-primary bg-primary/10 scale-[1.01] shadow-xl"
                     : dayCol.isToday
-                    ? "border-amber-500/50 bg-amber-500/5 ring-1 ring-amber-500/20"
+                    ? "border-primary/50 bg-primary/5 ring-1 ring-primary/20"
                     : "border-border hover:border-border/90"
                 )}
               >
@@ -907,7 +907,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ workspaceId, project
                         className={cn(
                           "text-base font-bold h-7 w-7 rounded-xl flex items-center justify-center",
                           dayCol.isToday
-                            ? "bg-amber-500 text-white shadow-xs"
+                            ? "bg-primary text-primary-foreground shadow-xs"
                             : "text-foreground"
                         )}
                       >
@@ -1051,7 +1051,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ workspaceId, project
                           className={cn(
                             "text-xs font-bold px-3 py-1 rounded-xl border",
                             isDateToday
-                              ? "bg-amber-500 text-white border-amber-600 shadow-xs"
+                              ? "bg-primary text-primary-foreground border-primary shadow-xs"
                               : "bg-muted text-foreground border-border/80"
                           )}
                         >
