@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   AlertCircle,
   Archive,
+  ArrowLeft,
   Inbox,
   Leaf,
   Plus,
@@ -510,6 +511,17 @@ export const TasksView: React.FC<TasksViewProps> = ({ workspaceId, initialViewMo
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 bg-card border border-border rounded-2xl shadow-card">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5">
+            {filter === "archive" && (
+              <button
+                type="button"
+                onClick={() => setFilter("today")}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium bg-muted/60 text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors cursor-pointer mr-1"
+                title="Return to active tasks"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>Active Tasks</span>
+              </button>
+            )}
             <h2 className="text-xl font-bold tracking-tight text-foreground">
               {viewMode === "kanban" ? "Agile Kanban Board" : filterLabels[filter].title}
             </h2>
@@ -629,33 +641,73 @@ export const TasksView: React.FC<TasksViewProps> = ({ workspaceId, initialViewMo
 
       {/* Filter tabs & Task controls toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-        {/* Segmented Filter Pills */}
-        <div className="flex flex-wrap items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border text-xs w-fit">
-          {(["today", "inbox", "recovery", "all", "completed", "archive"] as FilterType[]).map((item) => {
-            const isActive = filter === item;
-            return (
-              <button
-                key={item}
-                onClick={() => setFilter(item)}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg font-medium capitalize transition-all duration-150 cursor-pointer flex items-center gap-1.5",
-                  isActive
-                    ? "bg-background shadow-xs text-foreground font-semibold"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <span>{item === "archive" ? "Archive" : item}</span>
-                <span
+        {/* Left: Active Workflow Filters & Separated Archive */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Segmented Filter Pills (Active Tasks) */}
+          <div className="flex flex-wrap items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border text-xs w-fit">
+            {(["today", "inbox", "recovery", "all", "completed"] as FilterType[]).map((item) => {
+              const isActive = filter === item;
+              return (
+                <button
+                  key={item}
+                  onClick={() => setFilter(item)}
                   className={cn(
-                    "text-[10px] font-mono px-1.5 py-px rounded-full",
-                    isActive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                    "px-3 py-1.5 rounded-lg font-medium capitalize transition-all duration-150 cursor-pointer flex items-center gap-1.5",
+                    isActive
+                      ? "bg-background shadow-xs text-foreground font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {counts[item]}
-                </span>
-              </button>
-            );
-          })}
+                  <span>{item}</span>
+                  <span
+                    className={cn(
+                      "text-[10px] font-mono px-1.5 py-px rounded-full",
+                      isActive ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {counts[item]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="h-4 w-px bg-border/80 hidden sm:block" />
+
+          {/* Standalone Separated Archive Button */}
+          <div className="flex items-center bg-muted/60 p-1 rounded-xl border border-border text-xs w-fit">
+            <button
+              type="button"
+              onClick={() => {
+                if (filter === "archive") {
+                  setFilter("today");
+                } else {
+                  setFilter("archive");
+                  if (viewMode === "kanban") {
+                    handleViewModeChange("list");
+                  }
+                }
+              }}
+              className={cn(
+                "px-3 py-1.5 rounded-lg font-medium transition-all duration-150 cursor-pointer flex items-center gap-1.5",
+                filter === "archive"
+                  ? "bg-background shadow-xs text-foreground font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              title={filter === "archive" ? "Return to active tasks" : "View archived tasks and history"}
+            >
+              <Archive className="h-3.5 w-3.5" />
+              <span>Archive</span>
+              <span
+                className={cn(
+                  "text-[10px] font-mono px-1.5 py-px rounded-full",
+                  filter === "archive" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                )}
+              >
+                {counts.archive}
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Right Toolbar Controls */}
