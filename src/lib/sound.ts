@@ -1683,7 +1683,81 @@ export class MultiTrackSoundStudio {
       this.masterGain = null;
     }
   }
+
+  public applyMix(mixId: string): void {
+    const mix = SOUNDSCAPE_MIXES.find((m) => m.id === mixId);
+    if (!mix) return;
+    this.stopAll();
+    mix.tracks.forEach((t) => {
+      if (t.volume !== undefined) {
+        this.setTrackVolume(t.trackId, t.volume);
+      }
+      this.startTrack(t.trackId);
+    });
+  }
 }
 
+export interface SoundscapeMix {
+  id: string;
+  name: string;
+  description: string;
+  tracks: { trackId: SoundscapeTrackId; volume?: number }[];
+}
+
+export const SOUNDSCAPE_MIXES: SoundscapeMix[] = [
+  {
+    id: "deep-flow",
+    name: "Deep Flow",
+    description: "40Hz Gamma beat layered with deep brown noise for sustained focus",
+    tracks: [
+      { trackId: "binaural-gamma", volume: 0.4 },
+      { trackId: "brown-noise", volume: 0.35 },
+    ],
+  },
+  {
+    id: "rainy-cabin",
+    name: "Rainy Cabin",
+    description: "Gentle window raindrops crackling with warm fireplace embers",
+    tracks: [
+      { trackId: "rain", volume: 0.5 },
+      { trackId: "fire", volume: 0.3 },
+    ],
+  },
+  {
+    id: "coastal-woods",
+    name: "Coastal Breeze",
+    description: "Rhythmic rolling ocean surf blended with fresh forest breeze",
+    tracks: [
+      { trackId: "surf", volume: 0.45 },
+      { trackId: "forest", volume: 0.35 },
+    ],
+  },
+];
+
 export const soundscapeStudio = new MultiTrackSoundStudio();
+
+/**
+ * Dispatches a lightweight native/browser notification on timer completion.
+ */
+export function sendFocusNotification(title: string, body: string): void {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission === "granted") {
+    try {
+      new Notification(title, { body, silent: true });
+    } catch {
+      // Ignore background or sandbox issues
+    }
+  } else if (Notification.permission !== "denied") {
+    void Notification.requestPermission().then((perm) => {
+      if (perm === "granted") {
+        try {
+          new Notification(title, { body, silent: true });
+        } catch {
+          // Ignore
+        }
+      }
+    });
+  }
+}
+
 

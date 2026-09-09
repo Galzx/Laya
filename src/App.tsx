@@ -20,6 +20,9 @@ import { CookieConsent } from "./components/common/CookieConsent";
 import { NotFoundView } from "./components/common/NotFoundView";
 const DashboardView = React.lazy(() => import("./components/dashboard/DashboardView").then((m) => ({ default: m.DashboardView })));
 import { applyTheme } from "./lib/theme";
+import { FocusProvider } from "./lib/focusContext";
+import { FocusMiniPill } from "./components/focus/FocusMiniPill";
+import { ZenModeOverlay } from "./components/focus/ZenModeOverlay";
 import { setSoundProfile, setTidySoundProfile, setSoundEnabled } from "./lib/sound";
 import { matchesShortcut, getSavedShortcuts, type ShortcutCombo } from "./lib/shortcuts";
 import {
@@ -369,7 +372,8 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden">
+    <FocusProvider>
+      <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden">
       {/* Accessible Skip to Content Link for Keyboard Navigation */}
       <a
         href="#main-content"
@@ -788,6 +792,16 @@ export default function App() {
         projects={projects}
         onTaskCreated={() => void loadDashboardData()}
       />
+
+      {/* Global Floating Mini Focus Companion */}
+      <FocusMiniPill
+        currentTab={activeTab}
+        onNavigateFocus={() => setActiveTab("focus")}
+      />
+
+      {/* Full-Screen Distraction-Free Zen Mode */}
+      <ZenModeOverlay />
     </div>
-  );
+  </FocusProvider>
+);
 }

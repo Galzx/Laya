@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Play,
@@ -22,32 +22,27 @@ import {
   VolumeX,
   ListTodo,
   SlidersHorizontal,
+  Maximize2,
+  History,
+  Trash2,
+  Check,
+  Music2,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import {
   playTaskPopSound,
   playFocusAlarmSound,
   FOCUS_ALARM_PROFILES,
-  ambientSound,
-  soundscapeStudio,
   SOUNDSCAPE_TRACKS,
-  type SoundscapeTrackId,
+  SOUNDSCAPE_MIXES,
   type AmbientSoundType,
 } from "../../lib/sound";
+import { useFocusTimer, TIMER_PRESETS } from "../../lib/focusContext";
 import type { Task, Subtask } from "../tasks/TasksView";
 
 interface FocusViewProps {
   workspaceId: string;
 }
-
-type TimerMode = "pomodoro" | "deepFocus" | "shortBreak" | "longBreak" | "custom";
-
-const TIMER_PRESETS: Record<Exclude<TimerMode, "custom">, { label: string; minutes: number; icon: React.ComponentType<{ className?: string }> }> = {
-  pomodoro: { label: "Focus (25m)", minutes: 25, icon: Target },
-  deepFocus: { label: "Deep Work (50m)", minutes: 50, icon: Flame },
-  shortBreak: { label: "Short Break (5m)", minutes: 5, icon: Coffee },
-  longBreak: { label: "Long Break (15m)", minutes: 15, icon: Sparkles },
-};
 
 const AMBIENT_PRESETS: { id: AmbientSoundType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "none", label: "Mute", icon: VolumeX },
@@ -58,58 +53,50 @@ const AMBIENT_PRESETS: { id: AmbientSoundType; label: string; icon: React.Compon
 ];
 
 export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
-  const [mode, setMode] = useState<TimerMode>("pomodoro");
-  const [customMinutes, setCustomMinutes] = useState<number>(() => {
-    const saved = localStorage.getItem("laya-focus-custom-minutes");
-    return saved ? Math.max(1, Math.min(180, parseInt(saved, 10))) : 45;
-  });
-  const [totalDurationSeconds, setTotalDurationSeconds] = useState(25 * 60);
-  const [timeLeft, setTimeLeft] = useState(25 * 60);
-  const [isRunning, setIsRunning] = useState(false);
-  const [sessionsCompleted, setSessionsCompleted] = useState(() => {
-    const saved = localStorage.getItem("laya-focus-sessions-today");
-    return saved ? parseInt(saved, 10) : 0;
-  });
-  const [totalFocusMinutesToday, setTotalFocusMinutesToday] = useState(() => {
-    const saved = localStorage.getItem("laya-focus-minutes-today");
-    return saved ? parseInt(saved, 10) : 0;
-  });
+  const {
+    mode,
+    customMinutes,
+    timeLeft,
+    isRunning,
+    progressPercent,
+    sessionsCompletedToday,
+    totalFocusMinutesToday,
+    selectedTaskId,
+    selectedTaskTitle,
+    alarmSoundId,
+    setIsZenMode,
+    ambientType,
+    ambientVol,
+    showMixerStudio,
+    activeSoundTracks,
+    masterSoundVol,
+    trackVols,
+    sessionLogs,
+    toggleRunning,
+    resetTimer,
+    skipTimer,
+    switchMode,
+    handleCustomMinutesChange,
+    adjustTimeByMinutes,
+    setSelectedTask,
+    handleAlarmChange,
+    handleAmbientChange,
+    handleAmbientVolChange,
+    setShowMixerStudio,
+    toggleSoundTrack,
+    setTrackVolume,
+    setMasterSoundVol,
+    muteAllTracks,
+    applySoundMix,
+    clearTodayHistory,
+    formatTime,
+  } = useFocusTimer();
 
-  // Active Task & Subtasks
+  // Tasks & Subtasks
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
-
-  // Selected Alarm Sound
-  const [alarmSoundId, setAlarmSoundId] = useState<string>(() => {
-    return localStorage.getItem("laya-focus-alarm-sound") || "temple-gong";
-  });
-
-  // Ambient Sound Generator
-  const [ambientType, setAmbientType] = useState<AmbientSoundType>("none");
-  const [ambientVol, setAmbientVol] = useState<number>(() => {
-    const saved = localStorage.getItem("laya-focus-ambient-vol");
-    return saved ? parseFloat(saved) : 0.35;
-  });
-
-  // Multi-Track Ambient Sound Studio
-  const [showMixerStudio, setShowMixerStudio] = useState(false);
-  const [activeSoundTracks, setActiveSoundTracks] = useState<SoundscapeTrackId[]>(() =>
-    soundscapeStudio.getActiveTracks()
-  );
-  const [masterSoundVol, setMasterSoundVol] = useState<number>(() =>
-    soundscapeStudio.getMasterVolume()
-  );
-  const [trackVols, setTrackVols] = useState<Record<SoundscapeTrackId, number>>(() => {
-    const vols: Partial<Record<SoundscapeTrackId, number>> = {};
-    SOUNDSCAPE_TRACKS.forEach((t) => {
-      vols[t.id] = soundscapeStudio.getTrackVolume(t.id);
-    });
-    return vols as Record<SoundscapeTrackId, number>;
-  });
-
-  const timerRef = useRef<number | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Load active tasks for focus task selector
   useEffect(() => {
@@ -119,14 +106,14 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
         const active = res.filter((t) => t.status !== "completed" && t.status !== "archived");
         setTasks(active);
         if (active.length > 0 && !selectedTaskId) {
-          setSelectedTaskId(active[0].id);
+          setSelectedTask(active[0].id, active[0].title);
         }
       } catch (err) {
         console.error("Failed to load tasks for focus timer:", err);
       }
     }
     if (workspaceId) void loadTasks();
-  }, [workspaceId]);
+  }, [workspaceId, selectedTaskId, setSelectedTask]);
 
   // Load subtasks whenever selectedTaskId changes
   useEffect(() => {
@@ -144,156 +131,6 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
     }
     void loadSubtasks();
   }, [selectedTaskId]);
-
-  // Clean up ambient sound on unmount
-  useEffect(() => {
-    return () => {
-      ambientSound.stop();
-    };
-  }, []);
-
-  // Timer countdown loop
-  useEffect(() => {
-    if (isRunning) {
-      timerRef.current = window.setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            handleTimerComplete();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isRunning, mode, alarmSoundId, totalDurationSeconds]);
-
-  const handleTimerComplete = () => {
-    setIsRunning(false);
-    playFocusAlarmSound(alarmSoundId);
-
-    if (mode === "pomodoro" || mode === "deepFocus" || mode === "custom") {
-      const sessionMins = Math.round(totalDurationSeconds / 60);
-      const nextCompleted = sessionsCompleted + 1;
-      const nextMins = totalFocusMinutesToday + sessionMins;
-
-      setSessionsCompleted(nextCompleted);
-      setTotalFocusMinutesToday(nextMins);
-      localStorage.setItem("laya-focus-sessions-today", String(nextCompleted));
-      localStorage.setItem("laya-focus-minutes-today", String(nextMins));
-
-      // Auto-suggest break
-      const nextMode = nextCompleted % 4 === 0 ? "longBreak" : "shortBreak";
-      setMode(nextMode);
-      const nextSecs = TIMER_PRESETS[nextMode].minutes * 60;
-      setTotalDurationSeconds(nextSecs);
-      setTimeLeft(nextSecs);
-    } else {
-      setMode("pomodoro");
-      const nextSecs = TIMER_PRESETS.pomodoro.minutes * 60;
-      setTotalDurationSeconds(nextSecs);
-      setTimeLeft(nextSecs);
-    }
-  };
-
-  const switchMode = (newMode: TimerMode) => {
-    setIsRunning(false);
-    setMode(newMode);
-    let seconds = 25 * 60;
-    if (newMode === "custom") {
-      seconds = customMinutes * 60;
-    } else {
-      seconds = TIMER_PRESETS[newMode].minutes * 60;
-    }
-    setTotalDurationSeconds(seconds);
-    setTimeLeft(seconds);
-  };
-
-  const handleCustomMinutesChange = (newMins: number) => {
-    const clamped = Math.max(1, Math.min(180, newMins));
-    setCustomMinutes(clamped);
-    localStorage.setItem("laya-focus-custom-minutes", String(clamped));
-    if (mode === "custom") {
-      setIsRunning(false);
-      setTotalDurationSeconds(clamped * 60);
-      setTimeLeft(clamped * 60);
-    }
-  };
-
-  const adjustTimeByMinutes = (delta: number) => {
-    if (mode === "custom") {
-      handleCustomMinutesChange(customMinutes + delta);
-    } else {
-      setTimeLeft((prev) => Math.max(60, prev + delta * 60));
-      setTotalDurationSeconds((prev) => Math.max(60, prev + delta * 60));
-    }
-  };
-
-  const handleAlarmChange = (soundId: string) => {
-    setAlarmSoundId(soundId);
-    localStorage.setItem("laya-focus-alarm-sound", soundId);
-    playFocusAlarmSound(soundId);
-  };
-
-  const handleAmbientChange = (type: AmbientSoundType) => {
-    setAmbientType(type);
-    if (type === "none") {
-      ambientSound.stop();
-    } else {
-      ambientSound.start(type, ambientVol);
-    }
-  };
-
-  const handleAmbientVolChange = (vol: number) => {
-    setAmbientVol(vol);
-    localStorage.setItem("laya-focus-ambient-vol", String(vol));
-    ambientSound.setVolume(vol);
-  };
-
-  const handleToggleSoundTrack = (trackId: SoundscapeTrackId) => {
-    playTaskPopSound();
-    soundscapeStudio.toggleTrack(trackId);
-    setActiveSoundTracks(soundscapeStudio.getActiveTracks());
-  };
-
-  const handleTrackVolumeChange = (trackId: SoundscapeTrackId, vol: number) => {
-    soundscapeStudio.setTrackVolume(trackId, vol);
-    setTrackVols((prev) => ({ ...prev, [trackId]: vol }));
-  };
-
-  const handleMasterVolumeChange = (vol: number) => {
-    soundscapeStudio.setMasterVolume(vol);
-    setMasterSoundVol(vol);
-  };
-
-  const handleMuteAllTracks = () => {
-    playTaskPopSound();
-    soundscapeStudio.stopAll();
-    ambientSound.stop();
-    setAmbientType("none");
-    setActiveSoundTracks([]);
-  };
-
-  const toggleRunning = () => {
-    playTaskPopSound();
-    if (!isRunning && ambientType !== "none") {
-      ambientSound.start(ambientType, ambientVol);
-    }
-    setIsRunning(!isRunning);
-  };
-
-  const resetTimer = () => {
-    setIsRunning(false);
-    setTimeLeft(totalDurationSeconds);
-  };
-
-  const skipTimer = () => {
-    handleTimerComplete();
-  };
 
   const handleToggleSubtask = async (sub: Subtask) => {
     playTaskPopSound();
@@ -323,15 +160,18 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
     }
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  const handleCompleteLinkedTask = async (taskId: string) => {
+    playTaskPopSound();
+    try {
+      await invoke("toggle_task_status", { taskId });
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      if (selectedTaskId === taskId) {
+        setSelectedTask(null, null);
+      }
+    } catch (err) {
+      console.error("Failed to complete task from focus view:", err);
+    }
   };
-
-  const progressPercent = totalDurationSeconds > 0
-    ? ((totalDurationSeconds - timeLeft) / totalDurationSeconds) * 100
-    : 0;
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId);
 
@@ -339,17 +179,21 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
     <div className="flex flex-col h-full max-w-5xl mx-auto space-y-6 animate-smooth-in select-none">
       {/* ─── 1. TOP HEADER & AMBIENT CONTROLLER BAR ─── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-card border border-border rounded-2xl shadow-card">
-        {/* Mode Switcher Tabs */}
+        {/* Mode Switcher Tabs + Zen Mode Button */}
         <div className="flex flex-wrap items-center bg-muted/60 p-1 rounded-xl border border-border/80 gap-1">
-          {(Object.keys(TIMER_PRESETS) as (keyof typeof TIMER_PRESETS)[]).map((m) => {
-            const cfg = TIMER_PRESETS[m];
+          {([
+            { id: "pomodoro", icon: Target, label: "Focus (25m)" },
+            { id: "deepFocus", icon: Flame, label: "Deep Work (50m)" },
+            { id: "shortBreak", icon: Coffee, label: "Short Break (5m)" },
+            { id: "longBreak", icon: Sparkles, label: "Long Break (15m)" },
+          ] as const).map((cfg) => {
             const Icon = cfg.icon;
-            const isActive = mode === m;
+            const isActive = mode === cfg.id;
             return (
               <button
-                key={m}
+                key={cfg.id}
                 type="button"
-                onClick={() => switchMode(m)}
+                onClick={() => switchMode(cfg.id)}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer",
                   isActive
@@ -375,6 +219,17 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
           >
             <Sliders className="h-3.5 w-3.5" />
             <span>Custom ({customMinutes}m)</span>
+          </button>
+
+          {/* Zen Mode Button */}
+          <button
+            type="button"
+            onClick={() => setIsZenMode(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-primary hover:bg-primary/10 transition-colors cursor-pointer border border-primary/20"
+            title="Launch Full-Screen Zen Mode (Esc to exit)"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+            <span>Zen Mode</span>
           </button>
         </div>
 
@@ -456,7 +311,7 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
                 <span>Multi-Track Soundscape Studio</span>
               </h3>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Layer multiple procedural focus soundscapes concurrently with independent volume channels.
+                Layer procedural focus soundscapes with independent channels and 1-click curated mixes.
               </p>
             </div>
 
@@ -471,7 +326,7 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
                   max="1"
                   step="0.05"
                   value={masterSoundVol}
-                  onChange={(e) => handleMasterVolumeChange(parseFloat(e.target.value))}
+                  onChange={(e) => setMasterSoundVol(parseFloat(e.target.value))}
                   className="w-20 h-1 bg-muted-foreground/30 accent-primary cursor-pointer"
                   title={`Master Volume: ${Math.round(masterSoundVol * 100)}%`}
                 />
@@ -483,7 +338,7 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
               {activeSoundTracks.length > 0 && (
                 <button
                   type="button"
-                  onClick={handleMuteAllTracks}
+                  onClick={muteAllTracks}
                   className="px-2.5 py-1.5 rounded-xl border border-border bg-background hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-rose-500 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
                   title="Mute all active tracks"
                 >
@@ -492,6 +347,28 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* 1-Click Curated Mixes Bar */}
+          <div className="flex flex-wrap items-center gap-2 p-3 bg-muted/30 rounded-xl border border-border/80 text-xs">
+            <span className="text-muted-foreground font-medium flex items-center gap-1.5 shrink-0">
+              <Music2 className="h-3.5 w-3.5 text-primary" />
+              <span>Curated Mixes:</span>
+            </span>
+            {SOUNDSCAPE_MIXES.map((mix) => (
+              <button
+                key={mix.id}
+                type="button"
+                onClick={() => applySoundMix(mix.id)}
+                className="px-3 py-1.5 rounded-lg border border-border bg-card hover:bg-muted text-xs font-semibold text-foreground transition-all cursor-pointer shadow-2xs hover:border-primary/40 flex items-center gap-1.5"
+                title={mix.description}
+              >
+                <span>{mix.name}</span>
+                <span className="text-[10px] text-muted-foreground font-normal">
+                  ({mix.tracks.length} tracks)
+                </span>
+              </button>
+            ))}
           </div>
 
           {/* 6 Soundscape Track Cards Grid */}
@@ -523,7 +400,7 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
 
                     <button
                       type="button"
-                      onClick={() => handleToggleSoundTrack(track.id)}
+                      onClick={() => toggleSoundTrack(track.id)}
                       className={cn(
                         "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs",
                         isActive
@@ -545,7 +422,7 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
                         max="1"
                         step="0.05"
                         value={vol}
-                        onChange={(e) => handleTrackVolumeChange(track.id, parseFloat(e.target.value))}
+                        onChange={(e) => setTrackVolume(track.id, parseFloat(e.target.value))}
                         className="w-full h-1 bg-muted-foreground/30 accent-primary cursor-pointer"
                         title={`${track.name} volume: ${Math.round(vol * 100)}%`}
                       />
@@ -766,7 +643,11 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
             {tasks.length > 0 ? (
               <select
                 value={selectedTaskId || ""}
-                onChange={(e) => setSelectedTaskId(e.target.value || null)}
+                onChange={(e) => {
+                  const id = e.target.value || null;
+                  const t = tasks.find((item) => item.id === id);
+                  setSelectedTask(id, t ? t.title : null);
+                }}
                 className="w-full bg-muted/50 hover:bg-muted border border-border text-xs font-semibold text-foreground rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
               >
                 <option value="">Free Focus (No task linked)</option>
@@ -847,43 +728,114 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
         </div>
       </div>
 
-      {/* ─── 3. BOTTOM STATS BAR ─── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="flex items-center gap-3.5 p-4 rounded-2xl border border-border bg-card shadow-card">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-            <Target className="h-5 w-5" />
+      {/* ─── 3. BOTTOM STATS & HISTORY BAR ─── */}
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="flex items-center justify-between p-4 rounded-2xl border border-border bg-card shadow-card">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+                <Target className="h-5 w-5" />
+              </div>
+              <div>
+                <span className="text-[11px] text-muted-foreground font-medium">Sessions Today</span>
+                <p className="text-lg font-bold font-mono text-foreground">{sessionsCompletedToday}</p>
+              </div>
+            </div>
+
+            {sessionLogs.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowHistory(!showHistory)}
+                className="px-2.5 py-1 rounded-xl border border-border bg-background hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition-all cursor-pointer flex items-center gap-1 shadow-2xs"
+                title="Toggle session history list"
+              >
+                <History className="h-3.5 w-3.5" />
+                <span>{showHistory ? "Hide" : "Logs"}</span>
+              </button>
+            )}
           </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground font-medium">Sessions Today</span>
-            <p className="text-lg font-bold font-mono text-foreground">{sessionsCompleted}</p>
+
+          <div className="flex items-center gap-3.5 p-4 rounded-2xl border border-border bg-card shadow-card">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <span className="text-[11px] text-muted-foreground font-medium">Focus Time Logged</span>
+              <p className="text-lg font-bold font-mono text-foreground">
+                {totalFocusMinutesToday > 60
+                  ? `${Math.floor(totalFocusMinutesToday / 60)}h ${totalFocusMinutesToday % 60}m`
+                  : `${totalFocusMinutesToday}m`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3.5 p-4 rounded-2xl border border-border bg-card shadow-card">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+              <Flame className="h-5 w-5" />
+            </div>
+            <div>
+              <span className="text-[11px] text-muted-foreground font-medium">Active Focus Target</span>
+              <p className="text-xs font-semibold text-foreground truncate max-w-[160px]">
+                {selectedTask ? selectedTask.title : (selectedTaskTitle || "Free Session")}
+              </p>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3.5 p-4 rounded-2xl border border-border bg-card shadow-card">
-          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground font-medium">Focus Time Logged</span>
-            <p className="text-lg font-bold font-mono text-foreground">
-              {totalFocusMinutesToday > 60
-                ? `${Math.floor(totalFocusMinutesToday / 60)}h ${totalFocusMinutesToday % 60}m`
-                : `${totalFocusMinutesToday}m`}
-            </p>
-          </div>
-        </div>
+        {/* Expandable Session Logs Drawer */}
+        {showHistory && (
+          <div className="p-4 bg-card border border-border rounded-2xl shadow-card space-y-3 animate-scale-in">
+            <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-primary" />
+                <h4 className="text-xs font-bold text-foreground uppercase tracking-wider">
+                  Today's Completed Sessions ({sessionLogs.length})
+                </h4>
+              </div>
 
-        <div className="flex items-center gap-3.5 p-4 rounded-2xl border border-border bg-card shadow-card">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-            <Flame className="h-5 w-5" />
+              <button
+                type="button"
+                onClick={clearTodayHistory}
+                className="text-[11px] text-muted-foreground hover:text-rose-500 transition-colors cursor-pointer flex items-center gap-1"
+                title="Reset today's logs"
+              >
+                <Trash2 className="h-3 w-3" />
+                <span>Clear Today</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+              {sessionLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="p-2.5 rounded-xl border border-border/80 bg-background/80 flex items-center justify-between gap-2 text-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-bold text-foreground">{log.durationMinutes}m</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">@{log.completedAt}</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground truncate max-w-[150px]">
+                      {log.taskTitle || "Free Focus"}
+                    </p>
+                  </div>
+
+                  {log.taskId && tasks.some((t) => t.id === log.taskId) && (
+                    <button
+                      type="button"
+                      onClick={() => handleCompleteLinkedTask(log.taskId!)}
+                      className="px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-semibold flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                      title="Mark linked task as done"
+                    >
+                      <Check className="h-3 w-3" />
+                      <span>Finish</span>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-          <div>
-            <span className="text-[11px] text-muted-foreground font-medium">Active Focus Target</span>
-            <p className="text-xs font-semibold text-foreground truncate max-w-[160px]">
-              {selectedTask ? selectedTask.title : "Free Session"}
-            </p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
