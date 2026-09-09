@@ -18,35 +18,23 @@ import { QuickTaskModal } from "./components/common/QuickTaskModal";
 import { ContactModal } from "./components/common/ContactModal";
 import { CookieConsent } from "./components/common/CookieConsent";
 import { NotFoundView } from "./components/common/NotFoundView";
-import { getProjectColorDef } from "./components/projects/projectColors";
+const DashboardView = React.lazy(() => import("./components/dashboard/DashboardView").then((m) => ({ default: m.DashboardView })));
 import { applyTheme } from "./lib/theme";
-import { setSoundProfile, setTidySoundProfile, setSoundEnabled, playTaskPopSound, playSweepSound } from "./lib/sound";
+import { setSoundProfile, setTidySoundProfile, setSoundEnabled } from "./lib/sound";
 import { matchesShortcut, getSavedShortcuts, type ShortcutCombo } from "./lib/shortcuts";
 import {
-  CheckSquare,
-  Columns3,
-  FolderKanban,
-  BookOpen,
-  CalendarDays,
-  AlertCircle,
-  Sparkles,
-  ArrowRight,
   Sun,
-  ShieldCheck,
-  Circle,
-  Plus,
-  Clock,
-  Flame,
-  Bot,
-  TrendingUp,
   Search,
-  CheckCircle2,
   ChevronRight,
+  ChevronDown,
+  Layers,
+  Check,
+  Plus,
   PanelLeftClose,
   PanelLeft,
   Moon,
   ArrowUp,
-  BookMarked,
+  ShieldCheck,
   LifeBuoy,
 } from "lucide-react";
 import { cn } from "./lib/utils";
@@ -74,93 +62,6 @@ interface Workspace {
   updated_at: number;
 }
 
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
-}
-
-function formatDate(): string {
-  return new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-}
-
-const quickLinks: {
-  id: TabId;
-  label: string;
-  description: string;
-  icon: React.ComponentType<{ className?: string }>;
-  accentColor: string;
-}[] = [
-  {
-    id: "tasks",
-    label: "Tasks",
-    description: "Capture, organize, and plan your work",
-    icon: CheckSquare,
-    accentColor: "bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground",
-  },
-  {
-    id: "kanban",
-    label: "Kanban",
-    description: "Agile 4-column drag and drop board",
-    icon: Columns3,
-    accentColor: "bg-sky-500/10 text-sky-600 dark:text-sky-400 group-hover:bg-sky-500 group-hover:text-white",
-  },
-  {
-    id: "projects",
-    label: "Projects",
-    description: "Organise larger milestones and goals",
-    icon: FolderKanban,
-    accentColor: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white",
-  },
-  {
-    id: "notes",
-    label: "Notes",
-    description: "Write and connect your daily thoughts",
-    icon: BookOpen,
-    accentColor: "bg-amber-500/10 text-amber-600 dark:text-amber-400 group-hover:bg-amber-500 group-hover:text-white",
-  },
-  {
-    id: "calendar",
-    label: "Calendar",
-    description: "Monthly agenda and scheduled deadlines",
-    icon: CalendarDays,
-    accentColor: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white",
-  },
-  {
-    id: "focus",
-    label: "Focus",
-    description: "Pomodoro sessions & deep work timer",
-    icon: Flame,
-    accentColor: "bg-rose-500/10 text-rose-600 dark:text-rose-400 group-hover:bg-rose-500 group-hover:text-white",
-  },
-  {
-    id: "ai",
-    label: "Sammi",
-    description: "Local task deconstructor & smart assistant",
-    icon: Bot,
-    accentColor: "bg-purple-500/10 text-purple-600 dark:text-purple-400 group-hover:bg-purple-500 group-hover:text-white",
-  },
-  {
-    id: "analytics",
-    label: "Analytics",
-    description: "Weekly velocity & focus distribution",
-    icon: TrendingUp,
-    accentColor: "bg-teal-500/10 text-teal-600 dark:text-teal-400 group-hover:bg-teal-500 group-hover:text-white",
-  },
-  {
-    id: "resources",
-    label: "Resources",
-    description: "Knowledge hub, guides, case studies & FAQ",
-    icon: BookMarked,
-    accentColor: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white",
-  },
-];
-
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
@@ -169,9 +70,11 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [initializationError, setInitializationError] = useState<string | null>(null);
-  const [newDashboardTaskTitle, setNewDashboardTaskTitle] = useState("");
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isQuickTaskOpen, setIsQuickTaskOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -421,79 +324,47 @@ export default function App() {
     );
   };
 
-  const isOverdue = (task: Task) => {
-    if (task.status === "completed" || task.status === "archived") return false;
-    if (task.due_date === null) return false;
-    const taskDate = new Date(task.due_date * 1000);
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    return taskDate < startOfToday;
-  };
-
   const todayTasks = tasks.filter(isToday);
-  const overdueTasks = tasks.filter(isOverdue);
-  const completedTodayCount = tasks.filter((t) => {
-    if (t.status !== "completed") return false;
-    const todayStart = new Date().setHours(0, 0, 0, 0) / 1000;
-    return t.updated_at >= todayStart;
-  }).length;
 
-  const focusMinutesToday = parseInt(localStorage.getItem("laya-focus-minutes-today") || "0", 10);
-  const focusSessionsToday = parseInt(localStorage.getItem("laya-focus-sessions-today") || "0", 10);
-
-  const handleToggleDashboardTask = async (task: Task) => {
-    playTaskPopSound();
-    const nextStatus: Task["status"] = task.status === "completed" ? "planned" : "completed";
-    setTasks((prev) =>
-      prev.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t))
-    );
+  const handleSwitchWorkspace = async (workspaceId: string) => {
     try {
-      await invoke("toggle_task_status", { taskId: task.id });
-      window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
+      await invoke("set_active_workspace", { workspaceId });
+      setWorkspaces((prev) =>
+        prev.map((w) => ({
+          ...w,
+          is_active: w.id === workspaceId ? 1 : 0,
+        }))
+      );
+      setIsWorkspaceMenuOpen(false);
+
+      const [taskRes, projRes, noteRes] = await Promise.all([
+        invoke<Task[]>("get_tasks", { workspaceId }).catch(() => [] as Task[]),
+        invoke<Project[]>("get_projects", { workspaceId }).catch(() => [] as Project[]),
+        invoke<Note[]>("get_notes", { workspaceId }).catch(() => [] as Note[]),
+      ]);
+      setTasks(taskRes);
+      setProjects(projRes);
+      setNotes(noteRes);
+      window.dispatchEvent(new CustomEvent("laya:workspace-changed", { detail: { workspaceId } }));
     } catch (err) {
-      console.error("Failed to toggle dashboard task:", err);
-      void loadDashboardData();
+      console.error("Failed to switch workspace:", err);
     }
   };
 
-  const handleCreateDashboardTodayTask = async (e: React.FormEvent) => {
+  const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newDashboardTaskTitle.trim()) return;
-    const wsId = activeWorkspace?.id || "ws-default-primary";
-    const todayNoonEpoch = Math.floor(new Date().setHours(12, 0, 0, 0) / 1000);
+    if (!newWorkspaceName.trim()) return;
     try {
-      await invoke("create_task", {
-        workspaceId: wsId,
-        title: newDashboardTaskTitle.trim(),
-        priority: "medium",
-        dueDate: todayNoonEpoch,
+      const created = await invoke<Workspace>("create_workspace", {
+        name: newWorkspaceName.trim(),
+        description: null,
       });
-      setNewDashboardTaskTitle("");
-      playTaskPopSound();
-      await loadDashboardData();
-      window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
+      setWorkspaces((prev) => [...prev, created]);
+      setNewWorkspaceName("");
+      setIsCreatingWorkspace(false);
+      await handleSwitchWorkspace(created.id);
     } catch (err) {
-      console.error("Failed to create task for today from dashboard:", err);
-    }
-  };
-
-  const handleRescheduleOverdueTask = async (task: Task) => {
-    playSweepSound();
-    const todayNoonEpoch = Math.floor(new Date().setHours(12, 0, 0, 0) / 1000);
-    try {
-      await invoke("update_task", {
-        taskId: task.id,
-        title: task.title,
-        description: task.description,
-        priority: task.priority,
-        status: task.status,
-        dueDate: todayNoonEpoch,
-        projectId: task.project_id,
-      });
-      await loadDashboardData();
-      window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
-    } catch (err) {
-      console.error("Failed to reschedule overdue task:", err);
+      console.error("Failed to create workspace:", err);
     }
   };
 
@@ -554,27 +425,128 @@ export default function App() {
               )}
             </button>
 
-            {/* Hierarchical Breadcrumbs */}
+            {/* Hierarchical Breadcrumbs & Workspace Switcher */}
             <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs min-w-0">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsWorkspaceMenuOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-muted font-medium text-foreground text-xs cursor-pointer border border-transparent hover:border-border/60 transition-colors"
+                  title="Switch workspace"
+                >
+                  <Layers className="h-3.5 w-3.5 text-primary" />
+                  <span className="font-semibold truncate max-w-[150px]">
+                    {activeWorkspace?.name || "Personal Workspace"}
+                  </span>
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </button>
+
+                {isWorkspaceMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsWorkspaceMenuOpen(false)}
+                    />
+                    <div className="absolute left-0 top-full mt-1.5 w-64 bg-card border border-border rounded-2xl shadow-dialog z-50 p-2 space-y-1 animate-smooth-in">
+                      <p className="text-[10px] font-mono font-semibold text-muted-foreground uppercase px-2 py-1">
+                        Select Workspace
+                      </p>
+                      <div className="max-h-56 overflow-y-auto space-y-0.5">
+                        {workspaces.map((ws) => {
+                          const isCurrent = ws.id === activeWorkspace?.id;
+                          return (
+                            <button
+                              key={ws.id}
+                              type="button"
+                              onClick={() => void handleSwitchWorkspace(ws.id)}
+                              className={cn(
+                                "w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-colors cursor-pointer",
+                                isCurrent
+                                  ? "bg-primary/10 text-primary font-semibold"
+                                  : "hover:bg-muted text-foreground"
+                              )}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-medium">{ws.name}</p>
+                                {ws.description && (
+                                  <p className="text-[10px] text-muted-foreground truncate">
+                                    {ws.description}
+                                  </p>
+                                )}
+                              </div>
+                              {isCurrent && <Check className="h-3.5 w-3.5 text-primary shrink-0 ml-1.5" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="pt-1.5 border-t border-border/60">
+                        {isCreatingWorkspace ? (
+                          <form onSubmit={handleCreateWorkspace} className="space-y-1.5 p-1">
+                            <input
+                              type="text"
+                              value={newWorkspaceName}
+                              onChange={(e) => setNewWorkspaceName(e.target.value)}
+                              placeholder="Workspace name..."
+                              autoFocus
+                              className="w-full bg-background border border-border rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                            />
+                            <div className="flex items-center gap-1 justify-end">
+                              <button
+                                type="button"
+                                onClick={() => setIsCreatingWorkspace(false)}
+                                className="px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                className="px-2 py-0.5 rounded-md bg-primary text-primary-foreground text-[10px] font-semibold cursor-pointer"
+                              >
+                                Create
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setIsCreatingWorkspace(true)}
+                            className="w-full flex items-center gap-1.5 p-1.5 rounded-lg text-xs font-semibold text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>New Workspace</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
               <button
                 type="button"
                 onClick={() => setActiveTab("dashboard")}
                 className="text-muted-foreground/75 hover:text-foreground font-medium transition-colors cursor-pointer shrink-0"
               >
-                Workspace
+                Dashboard
               </button>
-              <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-              <span className="text-foreground font-semibold capitalize tracking-wide truncate">
-                {activeTab === "ai"
-                  ? "Sammi Assistant"
-                  : activeTab === "analytics"
-                  ? "Insights & Analytics"
-                  : activeTab === "kanban"
-                  ? "Kanban Board"
-                  : activeTab === "resources"
-                  ? "Knowledge & Resources Hub"
-                  : activeTab}
-              </span>
+              {activeTab !== "dashboard" && (
+                <>
+                  <ChevronRight className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+                  <span className="text-foreground font-semibold capitalize tracking-wide truncate">
+                    {activeTab === "ai"
+                      ? "Sammi Assistant"
+                      : activeTab === "analytics"
+                      ? "Insights & Analytics"
+                      : activeTab === "kanban"
+                      ? "Kanban Board"
+                      : activeTab === "resources"
+                      ? "Knowledge & Resources Hub"
+                      : activeTab}
+                  </span>
+                </>
+              )}
             </nav>
           </div>
 
@@ -640,505 +612,26 @@ export default function App() {
             : "flex-1 p-3 sm:p-5 lg:p-6 2xl:p-8"
         )}>
           {activeTab === "dashboard" && (
-            <div className="w-full space-y-4 sm:space-y-6 lg:space-y-7 animate-smooth-in">
-              {initializationError && (
-                <div className="flex items-start gap-2.5 p-3.5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 rounded-2xl text-sm text-rose-700 dark:text-rose-400">
-                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                  <span>Storage could not be reached. Local data may be unavailable.</span>
+            <React.Suspense
+              fallback={
+                <div className="w-full h-64 flex flex-col items-center justify-center space-y-2 select-none animate-fade-in">
+                  <div className="h-6 w-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                  <span className="text-xs text-muted-foreground font-mono">Loading dashboard...</span>
                 </div>
-              )}
-
-              {/* ─── 1. HERO GREETING & QUICK ACTION BAR ─── */}
-              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4 pt-1 border-b border-border/50 pb-4 sm:pb-5">
-                <div className="space-y-1 sm:space-y-1.5 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap text-xs">
-                    <p className="text-xs text-muted-foreground font-medium">{formatDate()}</p>
-                    <span className="text-muted-foreground/40">·</span>
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary">
-                      <Sparkles className="h-3 w-3" />
-                      {todayTasks.length === 0
-                        ? "Schedule is clear"
-                        : `${todayTasks.length} task${todayTasks.length === 1 ? "" : "s"} due today`}
-                    </span>
-                    {overdueTasks.length > 0 && (
-                      <>
-                        <span className="text-muted-foreground/40">·</span>
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-500">
-                          <Clock className="h-3 w-3" />
-                          {overdueTasks.length} overdue
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  <h1 className="text-xl sm:text-2xl lg:text-3xl 2xl:text-4xl font-bold tracking-tight text-foreground truncate">
-                    {loading ? "Loading..." : `${getGreeting()}.`}
-                  </h1>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setIsQuickTaskOpen(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-semibold text-foreground transition-all cursor-pointer shadow-xs"
-                    title="Quick add task"
-                  >
-                    <Plus className="h-3.5 w-3.5 text-primary" />
-                    <span>New Task</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("focus")}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500 hover:text-white border border-rose-500/20 text-xs font-semibold transition-all cursor-pointer shadow-xs"
-                  >
-                    <Flame className="h-3.5 w-3.5" />
-                    <span>Start Focus</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("tasks")}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-semibold text-foreground transition-all cursor-pointer shadow-xs"
-                  >
-                    <span>Tasks</span>
-                    <ArrowRight className="h-3.5 w-3.5 text-primary" />
-                  </button>
-                </div>
-              </div>
-
-              {/* ─── 2. FOUR-METRIC GLANCE MATRIX ─── */}
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 2xl:grid-cols-4 gap-2.5 sm:gap-3.5 lg:gap-4 2xl:gap-5">
-                {/* Today's Tasks */}
-                <div
-                  onClick={() => setActiveTab("tasks")}
-                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:shadow-card-hover hover:border-primary/40 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] sm:text-xs font-semibold text-muted-foreground truncate">Today's Focus</span>
-                    <CheckSquare className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary group-hover:scale-110 transition-transform shrink-0" />
-                  </div>
-                  <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-foreground">{todayTasks.length}</span>
-                    <span className="text-[10px] sm:text-xs text-muted-foreground truncate">due today</span>
-                  </div>
-                  <span className="text-[10px] sm:text-[11px] text-muted-foreground truncate">
-                    {completedTodayCount} completed today
-                  </span>
-                </div>
-
-                {/* Focus Time */}
-                <div
-                  onClick={() => setActiveTab("focus")}
-                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:shadow-card-hover hover:border-rose-500/40 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] sm:text-xs font-semibold text-muted-foreground truncate">Focus Logged</span>
-                    <Flame className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-rose-500 group-hover:scale-110 transition-transform shrink-0" />
-                  </div>
-                  <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-foreground">
-                      {focusMinutesToday > 60 ? `${Math.floor(focusMinutesToday / 60)}h ${focusMinutesToday % 60}m` : `${focusMinutesToday}m`}
-                    </span>
-                  </div>
-                  <span className="text-[10px] sm:text-[11px] text-muted-foreground truncate">
-                    {focusSessionsToday} session{focusSessionsToday === 1 ? "" : "s"} completed
-                  </span>
-                </div>
-
-                {/* Active Projects */}
-                <div
-                  onClick={() => setActiveTab("projects")}
-                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:shadow-card-hover hover:border-emerald-500/40 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] sm:text-xs font-semibold text-muted-foreground truncate">Active Projects</span>
-                    <FolderKanban className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-500 group-hover:scale-110 transition-transform shrink-0" />
-                  </div>
-                  <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-foreground">{projects.length}</span>
-                    <span className="text-[10px] sm:text-xs text-muted-foreground truncate">in workspace</span>
-                  </div>
-                  <span className="text-[10px] sm:text-[11px] text-muted-foreground truncate">
-                    {notes.length} saved note{notes.length === 1 ? "" : "s"}
-                  </span>
-                </div>
-
-                {/* Analytics & Velocity */}
-                <div
-                  onClick={() => setActiveTab("analytics")}
-                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:shadow-card-hover hover:border-teal-500/40 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] sm:text-xs font-semibold text-muted-foreground truncate">Velocity</span>
-                    <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-teal-500 group-hover:scale-110 transition-transform shrink-0" />
-                  </div>
-                  <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-foreground">
-                      {tasks.filter((t) => t.status === "completed").length}
-                    </span>
-                    <span className="text-[10px] sm:text-xs text-muted-foreground truncate">total closed</span>
-                  </div>
-                  <span className="text-[10px] sm:text-[11px] text-primary flex items-center gap-1 font-medium truncate">
-                    <span>Open Analytics</span>
-                    <ChevronRight className="h-3 w-3 shrink-0" />
-                  </span>
-                </div>
-              </div>
-
-              {/* ─── 3. COMMAND CENTER ─── */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 2xl:grid-cols-12 gap-4 sm:gap-5 lg:gap-6 items-start">
-                {/* LEFT: Today's Focus Action Checklist */}
-                <div className="lg:col-span-7 xl:col-span-7 2xl:col-span-7 bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 lg:p-6 shadow-card space-y-4 sm:space-y-5 min-w-0">
-                  <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                    <div className="flex items-center gap-2">
-                      <Sun className="h-4 w-4 text-amber-500" />
-                      <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
-                        Today's Action Checklist
-                      </h3>
-                    </div>
-                    <span className="text-xs font-mono font-semibold text-muted-foreground">
-                      {todayTasks.length} {todayTasks.length === 1 ? "task" : "tasks"}
-                    </span>
-                  </div>
-
-                  {/* Fast Inline Task Creator */}
-                  <form onSubmit={handleCreateDashboardTodayTask} className="relative flex items-center">
-                    <input
-                      type="text"
-                      value={newDashboardTaskTitle}
-                      onChange={(e) => setNewDashboardTaskTitle(e.target.value)}
-                      placeholder="+ Add task due today... (press Enter)"
-                      className="w-full bg-muted/40 border border-border rounded-xl px-3 sm:px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/40 pr-10"
-                    />
-                    {newDashboardTaskTitle.trim() && (
-                      <button
-                        type="submit"
-                        className="absolute right-2 p-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity cursor-pointer shadow-2xs"
-                        title="Add task"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </form>
-
-                  {/* Tasks List */}
-                  {todayTasks.length === 0 ? (
-                    <div className="py-6 sm:py-8 text-center space-y-2 border border-dashed border-border/80 rounded-xl sm:rounded-2xl p-4 sm:p-6">
-                      <CheckCircle2 className="h-6 w-6 sm:h-7 sm:w-7 text-emerald-500/80 mx-auto" />
-                      <p className="text-sm font-semibold text-foreground">You're all caught up for today!</p>
-                      <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-                        No pending tasks due today. Add a new task above or launch a Focus session.
-                      </p>
-                    </div>
-                  ) : (
-                    <ul className="space-y-2 max-h-[440px] 2xl:max-h-[540px] overflow-y-auto pr-1">
-                      {todayTasks.slice(0, 8).map((task) => {
-                        const taskProject = task.project_id
-                          ? projects.find((p) => p.id === task.project_id)
-                          : null;
-                        const projectColor = taskProject ? getProjectColorDef(taskProject.color) : null;
-
-                        return (
-                          <li
-                            key={task.id}
-                            className="group flex items-center justify-between gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-border/60 bg-muted/30 hover:bg-muted/60 transition-all text-xs min-w-0"
-                          >
-                            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
-                              <button
-                                type="button"
-                                onClick={() => void handleToggleDashboardTask(task)}
-                                className="text-muted-foreground hover:text-emerald-500 transition-colors shrink-0 cursor-pointer"
-                                title="Mark complete"
-                              >
-                                <Circle className="h-4 w-4" />
-                              </button>
-                              <div className="min-w-0 flex-1 flex items-center gap-2">
-                                <span
-                                  onClick={() => setActiveTab("tasks")}
-                                  className="font-medium text-foreground truncate cursor-pointer hover:text-primary transition-colors"
-                                  title={task.title}
-                                >
-                                  {task.title}
-                                </span>
-                                {taskProject && projectColor && (
-                                  <span
-                                    className="hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border border-border/60 text-muted-foreground truncate max-w-[120px] shrink-0"
-                                    title={`Project: ${taskProject.name}`}
-                                  >
-                                    <span
-                                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                                      style={{ backgroundColor: projectColor.hex }}
-                                    />
-                                    <span className="truncate">{taskProject.name}</span>
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <span className={cn(
-                              "text-[9px] font-mono font-semibold uppercase px-2 py-0.5 rounded-md border shrink-0",
-                              task.priority === "urgent"
-                                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
-                                : task.priority === "high"
-                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
-                                : "bg-muted text-muted-foreground border-border"
-                            )}>
-                              {task.priority}
-                            </span>
-                          </li>
-                        );
-                      })}
-                      {todayTasks.length > 8 && (
-                        <li
-                          onClick={() => setActiveTab("tasks")}
-                          className="text-xs text-muted-foreground hover:text-primary transition-colors pt-1 text-center font-mono cursor-pointer"
-                        >
-                          +{todayTasks.length - 8} more tasks scheduled
-                        </li>
-                      )}
-                    </ul>
-                  )}
-
-                  {/* Overdue Recovery Glance */}
-                  {overdueTasks.length > 0 && (
-                    <div className="pt-3 border-t border-border/60 space-y-2">
-                      <div className="flex items-center justify-between text-xs text-rose-600 dark:text-rose-400">
-                        <span className="flex items-center gap-1.5 font-bold text-xs">
-                          <Clock className="h-3.5 w-3.5" />
-                          <span>Overdue Recovery ({overdueTasks.length})</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("tasks")}
-                          className="text-[11px] hover:underline cursor-pointer font-medium"
-                        >
-                          View in Tasks
-                        </button>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        {overdueTasks.slice(0, 2).map((t) => (
-                          <div
-                            key={t.id}
-                            className="flex items-center justify-between gap-2 text-xs p-2.5 rounded-xl bg-rose-500/5 border border-rose-500/20"
-                          >
-                            <span className="truncate flex-1 font-medium text-foreground/90">{t.title}</span>
-                            <button
-                              type="button"
-                              onClick={() => void handleRescheduleOverdueTask(t)}
-                              className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-300 hover:bg-rose-500 hover:text-white transition-colors cursor-pointer shrink-0"
-                            >
-                              Reschedule to Today
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* RIGHT: Focus Launch, Sammi Daily Briefing & Active Projects */}
-                <div className="lg:col-span-5 xl:col-span-5 2xl:col-span-5 flex flex-col gap-4 sm:gap-5 min-w-0">
-                  {/* Focus Session Quick-Launch Card */}
-                  <div className="bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 lg:p-6 shadow-card space-y-3 sm:space-y-4 min-w-0 flex flex-col justify-between hover:border-border/80 transition-all">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                        <div className="flex items-center gap-2">
-                          <Flame className="h-4 w-4 text-rose-500" />
-                          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
-                            Deep Work Launchpad
-                          </h3>
-                        </div>
-                        <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 shrink-0">
-                          25m Pomodoro
-                        </span>
-                      </div>
-
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        Lock in with ambient background soundscapes and procedural focus alarms.
-                      </p>
-
-                      {/* Quick Duration Presets */}
-                      <div className="grid grid-cols-3 gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("focus")}
-                          className="px-2.5 py-1.5 rounded-xl border border-border bg-muted/30 hover:bg-muted text-[11px] font-medium text-foreground transition-all cursor-pointer text-center"
-                        >
-                          <span className="block font-bold">25m</span>
-                          <span className="text-[9px] text-muted-foreground">Standard</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("focus")}
-                          className="px-2.5 py-1.5 rounded-xl border border-border bg-muted/30 hover:bg-muted text-[11px] font-medium text-foreground transition-all cursor-pointer text-center"
-                        >
-                          <span className="block font-bold">50m</span>
-                          <span className="text-[9px] text-muted-foreground">Deep Work</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("focus")}
-                          className="px-2.5 py-1.5 rounded-xl border border-border bg-muted/30 hover:bg-muted text-[11px] font-medium text-foreground transition-all cursor-pointer text-center"
-                        >
-                          <span className="block font-bold">15m</span>
-                          <span className="text-[9px] text-muted-foreground">Sprint</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("focus")}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all cursor-pointer shadow-xs mt-2"
-                    >
-                      <Flame className="h-4 w-4" />
-                      <span>Launch Focus Timer</span>
-                    </button>
-                  </div>
-
-                  {/* Sammi AI Briefing Card */}
-                  <div className="bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 lg:p-6 shadow-card space-y-3 min-w-0 flex flex-col justify-between hover:border-border/80 transition-all">
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between border-b border-border/60 pb-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-                            <Bot className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider truncate">
-                              Sammi Briefing
-                            </h3>
-                            <span className="text-[10px] text-muted-foreground">Local intelligence</span>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/60">
-                          100% Offline
-                        </span>
-                      </div>
-
-                      <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
-                        {todayTasks.length > 0
-                          ? `You have ${todayTasks.length} task(s) scheduled for today. Starting your first high-priority task now will build great momentum!`
-                          : "Your schedule is clear today. Great time to review your projects or draft thoughts in Notes."}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("ai")}
-                      className="inline-flex items-center justify-between gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer pt-2 border-t border-border/40"
-                    >
-                      <span>Ask Sammi to break down a goal</span>
-                      <ArrowRight className="h-3 w-3" />
-                    </button>
-                  </div>
-
-                  {/* Active Projects Glance */}
-                  <div className="bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-card space-y-3 min-w-0 hover:border-border/80 transition-all">
-                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                      <div className="flex items-center gap-2">
-                        <FolderKanban className="h-4 w-4 text-emerald-500" />
-                        <span className="text-xs font-bold text-foreground uppercase tracking-wider">
-                          Active Projects
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("projects")}
-                        className="text-[10px] text-primary hover:underline cursor-pointer font-medium"
-                      >
-                        View all ({projects.length})
-                      </button>
-                    </div>
-
-                    {projects.length === 0 ? (
-                      <div className="py-4 text-center space-y-1 text-xs text-muted-foreground">
-                        <p className="font-medium text-foreground">No projects yet</p>
-                        <button
-                          type="button"
-                          onClick={() => setActiveTab("projects")}
-                          className="text-primary hover:underline text-[11px] cursor-pointer"
-                        >
-                          + Create your first project
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {projects.slice(0, 4).map((p) => {
-                          const colorDef = getProjectColorDef(p.color);
-                          const projectTasks = tasks.filter((t) => t.project_id === p.id);
-                          const completedCount = projectTasks.filter((t) => t.status === "completed").length;
-                          const progress = projectTasks.length > 0 ? Math.round((completedCount / projectTasks.length) * 100) : 0;
-
-                          return (
-                            <div
-                              key={p.id}
-                              onClick={() => setActiveTab("projects")}
-                              className="p-2.5 rounded-xl bg-muted/30 hover:bg-muted/60 text-xs text-foreground cursor-pointer transition-all space-y-1.5 min-w-0 group"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2 min-w-0 flex-1">
-                                  <span
-                                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                                    style={{ backgroundColor: colorDef.hex }}
-                                    aria-hidden="true"
-                                  />
-                                  <span className="truncate font-medium group-hover:text-primary transition-colors">
-                                    {p.name}
-                                  </span>
-                                </div>
-                                <span className="text-[10px] font-mono text-muted-foreground capitalize shrink-0">
-                                  {projectTasks.length} task{projectTasks.length === 1 ? "" : "s"}
-                                </span>
-                              </div>
-                              {projectTasks.length > 0 && (
-                                <div className="w-full bg-border/40 rounded-full h-1 overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full transition-all duration-300"
-                                    style={{ width: `${progress}%`, backgroundColor: colorDef.hex }}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* ─── 4. WORKSPACE AREAS QUICK JUMP GRID ─── */}
-              <div className="pt-1">
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2.5 sm:mb-3.5">
-                  Workspace Hubs
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 xl:gap-4">
-                  {quickLinks.map(({ id, label, description, icon: Icon, accentColor }) => (
-                    <button
-                      key={id}
-                      onClick={() => setActiveTab(id)}
-                      className="group flex items-start gap-2.5 sm:gap-3.5 p-3 sm:p-4 bg-card border border-border rounded-xl sm:rounded-2xl text-left shadow-card hover:shadow-card-hover hover:border-primary/40 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer min-w-0"
-                    >
-                      <span className={cn("mt-0.5 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl transition-all duration-200 shrink-0 shadow-2xs", accentColor)}>
-                        <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 transition-transform duration-200 group-hover:scale-110" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs sm:text-sm font-semibold text-foreground group-hover:text-primary transition-colors truncate">
-                            {label}
-                          </p>
-                          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all hidden sm:block shrink-0" />
-                        </div>
-                        <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                          {description}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+              }
+            >
+              <DashboardView
+                workspaceId={activeWorkspace?.id || "ws-default-primary"}
+                workspaceName={activeWorkspace?.name || "Personal Workspace"}
+                tasks={tasks}
+                projects={projects}
+                notes={notes}
+                onNavigateTab={setActiveTab}
+                onOpenQuickTask={() => setIsQuickTaskOpen(true)}
+                onRefreshAllData={loadDashboardData}
+                initializationError={initializationError}
+              />
+            </React.Suspense>
           )}
 
           {activeTab === "tasks" && (

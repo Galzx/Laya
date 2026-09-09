@@ -223,3 +223,4 @@ export async function copyNoteToClipboard(note: ExportableNote): Promise<boolean
   }
   return false;
 }
+

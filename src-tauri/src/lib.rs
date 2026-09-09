@@ -1,8 +1,8 @@
 mod db;
 
 use db::{
-    AppDataPath, BackupFileInfo, DatabaseStats, DbPool, FullWorkspaceExport, Note, Project,
-    SettingItem, Subtask, Task, TaskWithSubtasks, Workspace,
+    AppDataPath, BackupFileInfo, DashboardAggregates, DatabaseStats, DbPool, FullWorkspaceExport,
+    Note, Project, SettingItem, Subtask, Task, TaskWithSubtasks, Workspace,
 };
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -67,6 +67,180 @@ async fn get_workspaces(pool: State<'_, DbPool>) -> Result<Vec<Workspace>, Strin
     .fetch_all(&*pool)
     .await
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_active_workspace(workspace_id: String, pool: State<'_, DbPool>) -> Result<Workspace, String> {
+    sqlx::query("UPDATE workspaces SET is_active = 0")
+        .execute(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    sqlx::query("UPDATE workspaces SET is_active = 1, updated_at = ? WHERE id = ?")
+        .bind(current_timestamp())
+        .bind(&workspace_id)
+        .execute(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    sqlx::query_as::<_, Workspace>("SELECT id, name, description, is_active, created_at, updated_at FROM workspaces WHERE id = ?")
+        .bind(&workspace_id)
+        .fetch_one(&*pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn create_workspace(
+    name: String,
+    description: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<Workspace, String> {
+    validate_title(&name)?;
+    let id = format!("ws-{}", Uuid::new_v4());
+    let now = current_timestamp();
+
+    sqlx::query(
+        "INSERT INTO workspaces (id, name, description, is_active, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)"
+    )
+    .bind(&id)
+    .bind(&name)
+    .bind(&description)
+    .bind(now)
+    .bind(now)
+    .execute(&*pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(Workspace {
+        id,
+        name,
+        description,
+        is_active: 0,
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+#[tauri::command]
+async fn get_dashboard_aggregates(
+    workspace_id: String,
+    pool: State<'_, DbPool>,
+) -> Result<DashboardAggregates, String> {
+    let (start_of_day, end_of_day): (i64, i64) = sqlx::query_as(
+        "SELECT CAST(strftime('%s', 'now', 'start of day') AS INTEGER), CAST(strftime('%s', 'now', 'start of day', '+1 day', '-1 second') AS INTEGER)"
+    )
+    .fetch_one(&*pool)
+    .await
+    .unwrap_or_else(|_| {
+        let now = current_timestamp();
+        let sod = now - (now % 86400);
+        (sod, sod + 86399)
+    });
+
+    let (total_tasks,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ? AND status != 'archived'"
+    )
+    .bind(&workspace_id)
+    .fetch_one(&*pool)
+    .await
+    .unwrap_or((0,));
+
+    let (active_tasks,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ? AND status NOT IN ('completed', 'archived')"
+    )
+    .bind(&workspace_id)
+    .fetch_one(&*pool)
+    .await
+    .unwrap_or((0,));
+
+    let (completed_today,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ? AND status = 'completed' AND completed_at >= ?"
+    )
+    .bind(&workspace_id)
+    .bind(start_of_day)
+    .fetch_one(&*pool)
+    .await
+    .unwrap_or((0,));
+
+    let (overdue_tasks,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM tasks WHERE workspace_id = ? AND status NOT IN ('completed', 'archived') AND due_date IS NOT NULL AND due_date < ?"
+    )
+    .bind(&workspace_id)
+    .bind(start_of_day)
+    .fetch_one(&*pool)
+    .await
+    .unwrap_or((0,));
+
+    // Cross-table SQL Join: subtasks for all active tasks
+    let (total_subtasks, completed_subtasks): (i64, i64) = sqlx::query_as(
+        "SELECT 
+            COUNT(s.id), 
+            COALESCE(SUM(CASE WHEN s.is_completed = 1 THEN 1 ELSE 0 END), 0)
+         FROM subtasks s
+         JOIN tasks t ON s.task_id = t.id
+         WHERE t.workspace_id = ? AND t.status != 'archived'"
+    )
+    .bind(&workspace_id)
+    .fetch_one(&*pool)
+    .await
+    .unwrap_or((0, 0));
+
+    // Cross-table SQL Join: subtasks for today's active tasks (due today or in progress)
+    let (today_subtasks_total, today_subtasks_completed): (i64, i64) = sqlx::query_as(
+        "SELECT 
+            COUNT(s.id), 
+            COALESCE(SUM(CASE WHEN s.is_completed = 1 THEN 1 ELSE 0 END), 0)
+         FROM subtasks s
+         JOIN tasks t ON s.task_id = t.id
+         WHERE t.workspace_id = ? 
+           AND t.status != 'archived'
+           AND ((t.due_date >= ? AND t.due_date <= ?) OR t.status = 'in_progress')"
+    )
+    .bind(&workspace_id)
+    .bind(start_of_day)
+    .bind(end_of_day)
+    .fetch_one(&*pool)
+    .await
+    .unwrap_or((0, 0));
+
+    let subtask_completion_ratio = if today_subtasks_total > 0 {
+        today_subtasks_completed as f64 / today_subtasks_total as f64
+    } else if total_subtasks > 0 {
+        completed_subtasks as f64 / total_subtasks as f64
+    } else {
+        0.0
+    };
+
+    let (active_projects,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM projects WHERE workspace_id = ? AND status = 'active'"
+    )
+    .bind(&workspace_id)
+    .fetch_one(&*pool)
+    .await
+    .unwrap_or((0,));
+
+    let (total_notes,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM notes WHERE workspace_id = ? AND is_archived = 0"
+    )
+    .bind(&workspace_id)
+    .fetch_one(&*pool)
+    .await
+    .unwrap_or((0,));
+
+    Ok(DashboardAggregates {
+        total_tasks,
+        active_tasks,
+        completed_today,
+        overdue_tasks,
+        total_subtasks,
+        completed_subtasks,
+        today_subtasks_total,
+        today_subtasks_completed,
+        subtask_completion_ratio,
+        active_projects,
+        total_notes,
+    })
 }
 
 #[tauri::command]
@@ -1403,6 +1577,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             check_system_status,
             get_workspaces,
+            set_active_workspace,
+            create_workspace,
+            get_dashboard_aggregates,
             get_settings,
             update_setting,
             get_projects,

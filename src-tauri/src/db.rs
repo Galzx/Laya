@@ -93,6 +93,21 @@ pub struct DatabaseStats {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DashboardAggregates {
+    pub total_tasks: i64,
+    pub active_tasks: i64,
+    pub completed_today: i64,
+    pub overdue_tasks: i64,
+    pub total_subtasks: i64,
+    pub completed_subtasks: i64,
+    pub today_subtasks_total: i64,
+    pub today_subtasks_completed: i64,
+    pub subtask_completion_ratio: f64,
+    pub active_projects: i64,
+    pub total_notes: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BackupFileInfo {
     pub file_name: String,
     pub file_path: String,
@@ -176,6 +191,15 @@ pub async fn init_db(app_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Err
     let _ = sqlx::query("ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
         .execute(&pool)
         .await;
+
+    // Ensure default workspaces exist (Personal & Programming)
+    let _ = sqlx::query(
+        "INSERT OR IGNORE INTO workspaces (id, name, description, is_active, created_at, updated_at) VALUES 
+         ('ws-default-primary', 'Personal Workspace', 'Default offline space for notes, tasks, and daily planning', 1, strftime('%s', 'now'), strftime('%s', 'now')),
+         ('ws-programming', 'Programming Workspace', 'Focused workspace for software engineering, coding subtasks, and dev milestones', 0, strftime('%s', 'now'), strftime('%s', 'now'))"
+    )
+    .execute(&pool)
+    .await;
 
     Ok(pool)
 }
