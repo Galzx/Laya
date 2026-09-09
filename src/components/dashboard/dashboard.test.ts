@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   ALL_WIDGETS_METADATA,
   getWorkspaceDefaultLayout,
+  DASHBOARD_PRESETS,
+  applyDashboardPreset,
 } from "./defaultLayouts";
 import type { DashboardWidgetConfig, DashboardAggregates } from "./types";
 
@@ -162,6 +164,58 @@ describe("Customizable Modular Dashboard System", () => {
       const pct = Math.round(emptyAggregates.subtask_completion_ratio * 100);
       expect(pct).toBe(0);
       expect(Number.isFinite(pct)).toBe(true);
+    });
+  });
+
+  describe("5. 1-Click Starter Presets Suite", () => {
+    it("defines 4 distinct starter presets", () => {
+      expect(DASHBOARD_PRESETS).toHaveLength(4);
+      const presetIds = DASHBOARD_PRESETS.map((p) => p.id);
+      expect(presetIds).toEqual(["minimal", "daily_planner", "developer", "cockpit"]);
+    });
+
+    it("ensures each preset has a name, badge, description, and valid widgets", () => {
+      for (const preset of DASHBOARD_PRESETS) {
+        expect(preset.name.length).toBeGreaterThan(0);
+        expect(preset.badge.length).toBeGreaterThan(0);
+        expect(preset.description.length).toBeGreaterThan(0);
+        expect(preset.layout.length).toBe(11);
+
+        // At least 2 widgets visible in any preset
+        const visibleCount = preset.layout.filter((w) => w.visible).length;
+        expect(visibleCount).toBeGreaterThanOrEqual(2);
+      }
+    });
+
+    it("applies Minimalist preset with only essential widgets enabled", () => {
+      const minimal = applyDashboardPreset("minimal");
+      const visibleIds = minimal.filter((w) => w.visible).map((w) => w.id);
+      expect(visibleIds).toEqual(["today_tasks", "deep_work", "quick_capture"]);
+    });
+
+    it("applies Cockpit preset with all widgets enabled", () => {
+      const cockpit = applyDashboardPreset("cockpit");
+      const visibleIds = cockpit.filter((w) => w.visible).map((w) => w.id);
+      expect(visibleIds).toHaveLength(11);
+    });
+
+    it("enforces zero emojis in presets", () => {
+      const emojiRegex =
+        /[\u{1F300}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u;
+
+      for (const preset of DASHBOARD_PRESETS) {
+        expect(emojiRegex.test(preset.name)).toBe(false);
+        expect(emojiRegex.test(preset.badge)).toBe(false);
+        expect(emojiRegex.test(preset.description)).toBe(false);
+      }
+    });
+
+    it("enforces zero em-dashes in presets", () => {
+      for (const preset of DASHBOARD_PRESETS) {
+        expect(preset.name).not.toContain("—");
+        expect(preset.badge).not.toContain("—");
+        expect(preset.description).not.toContain("—");
+      }
     });
   });
 });

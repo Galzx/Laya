@@ -5,8 +5,6 @@ import {
   Check,
   RotateCcw,
   Plus,
-  EyeOff,
-  GripVertical,
   ArrowUp,
   ArrowDown,
   Sparkles,
@@ -14,8 +12,11 @@ import {
   Flame,
   CheckSquare,
   AlertCircle,
+  X,
+  LayoutTemplate,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { playTaskPopSound } from "../../lib/sound";
 import type { Task } from "../tasks/TasksView";
 import type { Project } from "../projects/ProjectsView";
 import type { Note } from "../notes/NoteEditor";
@@ -26,7 +27,13 @@ import type {
   DashboardAggregates,
   WidgetProps,
 } from "./types";
-import { ALL_WIDGETS_METADATA, getWorkspaceDefaultLayout } from "./defaultLayouts";
+import {
+  ALL_WIDGETS_METADATA,
+  DASHBOARD_PRESETS,
+  type DashboardPresetId,
+  applyDashboardPreset,
+  getWorkspaceDefaultLayout,
+} from "./defaultLayouts";
 
 // Widgets
 import { MetricsGlanceWidget } from "./widgets/MetricsGlanceWidget";
@@ -67,19 +74,19 @@ const WIDGET_COMPONENTS: Record<DashboardWidgetId, React.FC<WidgetProps>> = {
   workspace_hubs: WorkspaceHubsWidget,
 };
 
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
-}
-
 function formatDate(): string {
-  return new Date().toLocaleDateString("en-US", {
+  return new Date().toLocaleDateString(undefined, {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
+}
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -96,10 +103,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [widgets, setWidgets] = useState<DashboardWidgetConfig[]>(() =>
     getWorkspaceDefaultLayout(workspaceName || workspaceId)
   );
-  const [isCustomizing, setIsCustomizing] = useState(false);
-  const [showAddDrawer, setShowAddDrawer] = useState(false);
+  const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [aggregates, setAggregates] = useState<DashboardAggregates | null>(null);
-  const [draggedWidgetId, setDraggedWidgetId] = useState<DashboardWidgetId | null>(null);
 
   const settingKey = `dashboard_layout_${workspaceId}`;
 
@@ -129,7 +134,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           try {
             const parsed = JSON.parse(layoutSetting.value) as DashboardWidgetConfig[];
             if (Array.isArray(parsed) && parsed.length > 0) {
-              // Reconcile with any new widgets defined in system
               const defaultSet = getWorkspaceDefaultLayout(workspaceName || workspaceId);
               const merged = [...parsed];
               for (const def of defaultSet) {
@@ -145,7 +149,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           }
         }
 
-        // Fallback to workspace default
         if (isMounted) {
           setWidgets(getWorkspaceDefaultLayout(workspaceName || workspaceId));
         }
@@ -162,22 +165,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }, [workspaceId, workspaceName, settingKey, loadAggregates]);
 
-  // Listen to cross-table entity events
+  // Refresh aggregates upon tasks changes
   useEffect(() => {
-    const handleSync = () => {
-      void loadAggregates();
-    };
-    window.addEventListener("laya:tasks-changed", handleSync);
-    window.addEventListener("laya:notes-changed", handleSync);
-    window.addEventListener("laya:projects-changed", handleSync);
-    return () => {
-      window.removeEventListener("laya:tasks-changed", handleSync);
-      window.removeEventListener("laya:notes-changed", handleSync);
-      window.removeEventListener("laya:projects-changed", handleSync);
-    };
-  }, [loadAggregates]);
+    void loadAggregates();
+  }, [tasks, loadAggregates]);
 
-  // Persist layout to SQLite
+  // Save layout to SQLite
   const saveLayout = async (nextWidgets: DashboardWidgetConfig[]) => {
     setWidgets(nextWidgets);
     try {
@@ -186,88 +179,70 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         value: JSON.stringify(nextWidgets),
       });
     } catch (err) {
-      console.error("Failed to persist dashboard layout:", err);
+      console.error("Failed to save dashboard layout:", err);
     }
   };
 
+  // 1-Click Starter Preset Switcher
+  const handleApplyPreset = async (presetId: DashboardPresetId) => {
+    playTaskPopSound();
+    const newLayout = applyDashboardPreset(presetId);
+    await saveLayout(newLayout);
+  };
+
+  // Toggle widget visibility (ON / OFF)
+  const handleToggleWidget = async (id: DashboardWidgetId) => {
+    playTaskPopSound();
+    const next = widgets.map((w) => (w.id === id ? { ...w, visible: !w.visible } : w));
+    await saveLayout(next);
+  };
+
+  // Toggle widget size between Compact (6 cols) and Full Width (12 cols)
+  const handleToggleSize = async (id: DashboardWidgetId) => {
+    playTaskPopSound();
+    const next = widgets.map((w) => {
+      if (w.id === id) {
+        const nextSpan = w.colSpan >= 12 ? 6 : 12;
+        return { ...w, colSpan: nextSpan };
+      }
+      return w;
+    });
+    await saveLayout(next);
+  };
+
+  // Move widget up in order
+  const handleMoveWidget = async (id: DashboardWidgetId, direction: "up" | "down") => {
+    const visibleList = [...widgets].filter((w) => w.visible).sort((a, b) => a.order - b.order);
+    const currentIndex = visibleList.findIndex((w) => w.id === id);
+    if (currentIndex === -1) return;
+
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= visibleList.length) return;
+
+    playTaskPopSound();
+    const [moved] = visibleList.splice(currentIndex, 1);
+    visibleList.splice(targetIndex, 0, moved);
+
+    const visibleIds = new Set(visibleList.map((w) => w.id));
+    const hiddenList = widgets.filter((w) => !visibleIds.has(w.id));
+
+    const updated = [
+      ...visibleList.map((w, idx) => ({ ...w, order: idx })),
+      ...hiddenList.map((w, idx) => ({ ...w, order: visibleList.length + idx })),
+    ];
+
+    await saveLayout(updated);
+  };
+
+  // Reset to workspace defaults
   const handleResetToDefault = async () => {
+    playTaskPopSound();
     const defaults = getWorkspaceDefaultLayout(workspaceName || workspaceId);
     await saveLayout(defaults);
-    setShowAddDrawer(false);
-  };
-
-  const handleToggleWidgetVisibility = async (id: DashboardWidgetId) => {
-    const updated = widgets.map((w) => (w.id === id ? { ...w, visible: !w.visible } : w));
-    await saveLayout(updated);
-  };
-
-  const handleSetColSpan = async (id: DashboardWidgetId, colSpan: number) => {
-    const updated = widgets.map((w) => (w.id === id ? { ...w, colSpan } : w));
-    await saveLayout(updated);
-  };
-
-  const handleMoveWidget = async (index: number, direction: "up" | "down") => {
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= visibleWidgets.length) return;
-
-    const reorderedVisible = [...visibleWidgets];
-    const [moved] = reorderedVisible.splice(index, 1);
-    reorderedVisible.splice(targetIndex, 0, moved);
-
-    // Reconstruct full widgets array with updated orders
-    const visibleIds = new Set(reorderedVisible.map((w) => w.id));
-    const hidden = widgets.filter((w) => !visibleIds.has(w.id));
-
-    const updated = [
-      ...reorderedVisible.map((w, idx) => ({ ...w, order: idx })),
-      ...hidden.map((w, idx) => ({ ...w, order: reorderedVisible.length + idx })),
-    ];
-
-    await saveLayout(updated);
-  };
-
-  // Drag and Drop handlers
-  const handleDragStart = (e: React.DragEvent, id: DashboardWidgetId) => {
-    setDraggedWidgetId(id);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", id);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  };
-
-  const handleDrop = async (targetId: DashboardWidgetId) => {
-    if (!draggedWidgetId || draggedWidgetId === targetId) return;
-
-    const currentVisible = [...visibleWidgets];
-    const fromIdx = currentVisible.findIndex((w) => w.id === draggedWidgetId);
-    const toIdx = currentVisible.findIndex((w) => w.id === targetId);
-
-    if (fromIdx === -1 || toIdx === -1) return;
-
-    const [draggedItem] = currentVisible.splice(fromIdx, 1);
-    currentVisible.splice(toIdx, 0, draggedItem);
-
-    const visibleIds = new Set(currentVisible.map((w) => w.id));
-    const hidden = widgets.filter((w) => !visibleIds.has(w.id));
-
-    const updated = [
-      ...currentVisible.map((w, idx) => ({ ...w, order: idx })),
-      ...hidden.map((w, idx) => ({ ...w, order: currentVisible.length + idx })),
-    ];
-
-    setDraggedWidgetId(null);
-    await saveLayout(updated);
   };
 
   const visibleWidgets = useMemo(() => {
     return [...widgets].filter((w) => w.visible).sort((a, b) => a.order - b.order);
-  }, [widgets]);
-
-  const hiddenWidgets = useMemo(() => {
-    return [...widgets].filter((w) => !w.visible);
   }, [widgets]);
 
   // Derived tasks status
@@ -290,27 +265,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return d < startOfToday;
   };
 
-  const todayTasks = tasks.filter((t) => t.status !== "completed" && t.status !== "archived" && isToday(t.due_date));
-  const overdueTasks = tasks.filter((t) => t.status !== "completed" && t.status !== "archived" && isOverdue(t.due_date));
+  const todayTasks = tasks.filter(
+    (t) => t.status !== "completed" && t.status !== "archived" && isToday(t.due_date)
+  );
+  const overdueTasks = tasks.filter(
+    (t) => t.status !== "completed" && t.status !== "archived" && isOverdue(t.due_date)
+  );
 
   // Responsive Tailwind ColSpan Classes
   const getColSpanClass = (span: number) => {
     switch (span) {
       case 4:
-        return "md:col-span-4";
       case 5:
-        return "md:col-span-5";
       case 6:
-        return "md:col-span-6";
       case 7:
-        return "md:col-span-7";
-      case 8:
-        return "md:col-span-8";
+        return "md:col-span-6";
       case 12:
       default:
         return "md:col-span-12";
     }
   };
+
+  // Group all widgets into a stable list for the studio
+  const allWidgetsList = useMemo(() => {
+    const map = new Map(widgets.map((w) => [w.id, w]));
+    return (Object.keys(ALL_WIDGETS_METADATA) as DashboardWidgetId[]).map((id) => {
+      const cfg = map.get(id) || { id, colSpan: 6, visible: false, order: 99 };
+      return {
+        ...cfg,
+        meta: ALL_WIDGETS_METADATA[id],
+      };
+    });
+  }, [widgets]);
 
   return (
     <div className="w-full space-y-4 sm:space-y-6 lg:space-y-7 animate-smooth-in pb-12">
@@ -321,7 +307,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {/* ─── 1. HERO GREETING & CUSTOMIZATION TRIGGER BAR ─── */}
+      {/* ─── 1. HERO GREETING & HEADER ACTION BAR ─── */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4 pt-1 border-b border-border/50 pb-4 sm:pb-5">
         <div className="space-y-1 sm:space-y-1.5 min-w-0">
           <div className="flex items-center gap-2 flex-wrap text-xs">
@@ -353,29 +339,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          {/* Customize Mode Toggle */}
+          {/* Friendly Customize Button */}
           <button
             type="button"
-            onClick={() => setIsCustomizing((prev) => !prev)}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-xs border",
-              isCustomizing
-                ? "bg-primary text-primary-foreground border-primary ring-2 ring-primary/30"
-                : "border-border bg-card hover:bg-muted text-foreground"
-            )}
-            title={isCustomizing ? "Done customizing layout" : "Customize dashboard layout"}
+            onClick={() => setIsStudioOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-semibold text-foreground transition-all cursor-pointer shadow-xs hover:border-primary/40 active:scale-95"
+            title="Open Dashboard Studio to choose presets and customize widgets"
           >
-            {isCustomizing ? (
-              <>
-                <Check className="h-3.5 w-3.5" />
-                <span>Done Editing</span>
-              </>
-            ) : (
-              <>
-                <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
-                <span>Customize</span>
-              </>
-            )}
+            <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
+            <span>Customize Dashboard</span>
           </button>
 
           <button
@@ -408,167 +380,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* ─── CUSTOMIZATION TOOLBAR DRAWER ─── */}
-      {isCustomizing && (
-        <div className="p-4 rounded-2xl bg-primary/5 border border-primary/20 space-y-3 animate-smooth-in">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="space-y-0.5">
-              <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                <SlidersHorizontal className="h-4 w-4 text-primary" />
-                <span>Customizing Workspace Dashboard Layout</span>
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                Drag tiles or use arrow buttons to reorder. Adjust tile widths (Compact, Half, Wide, Full) and toggle widgets.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowAddDrawer((prev) => !prev)}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5 text-primary" />
-                <span>Add Widgets ({hiddenWidgets.length})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => void handleResetToDefault()}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-background border border-border text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
-                title="Reset this workspace's layout to defaults"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                <span>Reset Defaults</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Add Hidden Widgets Drawer */}
-          {showAddDrawer && hiddenWidgets.length > 0 && (
-            <div className="pt-3 border-t border-border/60">
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                Available Widgets to Add:
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                {hiddenWidgets.map((hw) => {
-                  const meta = ALL_WIDGETS_METADATA[hw.id];
-                  const Icon = meta.icon;
-
-                  return (
-                    <div
-                      key={hw.id}
-                      className="p-2.5 rounded-xl bg-background border border-border flex items-center justify-between gap-2 text-xs shadow-2xs"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Icon className="h-4 w-4 text-primary shrink-0" />
-                        <span className="font-semibold text-foreground truncate">{meta.title}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleToggleWidgetVisibility(hw.id)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground font-semibold text-[10px] transition-colors cursor-pointer shrink-0"
-                      >
-                        <Plus className="h-3 w-3" />
-                        <span>Add</span>
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ─── MODULAR WIDGET GRID (12-COLUMN RESPONSIVE) ─── */}
+      {/* ─── 2. MODULAR WIDGET GRID (CLEAN, UNCLUTTERED) ─── */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-5 lg:gap-6 items-start">
-        {visibleWidgets.map((widgetConfig, index) => {
-          const meta = ALL_WIDGETS_METADATA[widgetConfig.id];
+        {visibleWidgets.map((widgetConfig) => {
           const Component = WIDGET_COMPONENTS[widgetConfig.id];
           if (!Component) return null;
-
-          const isDragging = draggedWidgetId === widgetConfig.id;
 
           return (
             <div
               key={widgetConfig.id}
-              draggable={isCustomizing}
-              onDragStart={(e) => handleDragStart(e, widgetConfig.id)}
-              onDragOver={handleDragOver}
-              onDrop={() => void handleDrop(widgetConfig.id)}
               className={cn(
-                "col-span-1 min-w-0 transition-all duration-200 relative group",
-                getColSpanClass(widgetConfig.colSpan),
-                isCustomizing && "p-2 rounded-3xl border-2 border-dashed border-primary/40 bg-primary/5",
-                isDragging && "opacity-40 scale-[0.98]"
+                "col-span-1 min-w-0 transition-all duration-200",
+                getColSpanClass(widgetConfig.colSpan)
               )}
             >
-              {/* Customization Header Bar */}
-              {isCustomizing && (
-                <div className="flex items-center justify-between gap-2 p-1.5 mb-2 bg-card/90 backdrop-blur-sm border border-border rounded-xl text-xs shadow-xs">
-                  <div className="flex items-center gap-1.5 cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground">
-                    <GripVertical className="h-4 w-4 text-primary" />
-                    <span className="font-bold text-[11px] text-foreground truncate max-w-[140px]">
-                      {meta.title}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    {/* Move Up/Down */}
-                    <button
-                      type="button"
-                      disabled={index === 0}
-                      onClick={() => void handleMoveWidget(index, "up")}
-                      className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
-                      title="Move up / forward"
-                    >
-                      <ArrowUp className="h-3 w-3" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={index === visibleWidgets.length - 1}
-                      onClick={() => void handleMoveWidget(index, "down")}
-                      className="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30 cursor-pointer"
-                      title="Move down / backward"
-                    >
-                      <ArrowDown className="h-3 w-3" />
-                    </button>
-
-                    {/* Width Preset Selector */}
-                    <div className="flex items-center border border-border/80 rounded-md overflow-hidden text-[9px] font-mono">
-                      {[4, 6, 8, 12].map((span) => (
-                        <button
-                          key={span}
-                          type="button"
-                          onClick={() => void handleSetColSpan(widgetConfig.id, span)}
-                          className={cn(
-                            "px-1.5 py-0.5 transition-colors cursor-pointer",
-                            widgetConfig.colSpan === span
-                              ? "bg-primary text-primary-foreground font-bold"
-                              : "hover:bg-muted text-muted-foreground"
-                          )}
-                          title={`${span}/12 width`}
-                        >
-                          {span === 12 ? "Full" : span === 8 ? "2/3" : span === 6 ? "1/2" : "1/3"}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Hide Button */}
-                    <button
-                      type="button"
-                      onClick={() => void handleToggleWidgetVisibility(widgetConfig.id)}
-                      className="p-1 rounded-md hover:bg-rose-500/10 hover:text-rose-500 text-muted-foreground transition-colors cursor-pointer"
-                      title="Hide widget from dashboard"
-                    >
-                      <EyeOff className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Rendered Modular Widget Component */}
               <Component
                 workspaceId={workspaceId}
                 workspaceName={workspaceName}
@@ -578,13 +403,244 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 aggregates={aggregates}
                 onNavigateTab={onNavigateTab}
                 onRefreshData={onRefreshAllData}
-                isCustomizing={isCustomizing}
               />
             </div>
           );
         })}
       </div>
+
+      {/* ─── 3. SLIDE-OVER DASHBOARD STUDIO DRAWER ─── */}
+      {isStudioOpen && (
+        <div
+          className="fixed inset-0 bg-background/70 backdrop-blur-xs z-50 flex justify-end animate-fade-in"
+          onClick={() => setIsStudioOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg bg-card border-l border-border h-full flex flex-col shadow-2xl p-6 overflow-y-auto animate-smooth-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Studio Header */}
+            <div className="flex items-center justify-between border-b border-border/60 pb-4 mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                  <SlidersHorizontal className="h-4 w-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-foreground">Dashboard Studio</h2>
+                  <p className="text-[11px] text-muted-foreground">
+                    Choose a starter template or personalize widgets
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsStudioOpen(false)}
+                className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                title="Close Studio"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-6 flex-1">
+              {/* ─── 1-CLICK STARTER PRESETS SECTION ─── */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <LayoutTemplate className="h-3.5 w-3.5 text-primary" />
+                    <span>1-Click Starter Layouts</span>
+                  </label>
+                  <span className="text-[10px] text-muted-foreground">Click to apply instantly</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {DASHBOARD_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => void handleApplyPreset(preset.id)}
+                      className="p-3 rounded-2xl bg-muted/40 hover:bg-muted/80 border border-border/80 hover:border-primary/50 text-left transition-all cursor-pointer shadow-2xs group active:scale-95 space-y-1"
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-bold text-xs text-foreground group-hover:text-primary transition-colors">
+                          {preset.name}
+                        </span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-background border border-border text-muted-foreground shrink-0 font-medium">
+                          {preset.badge}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
+                        {preset.description}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ─── WIDGET GALLERY & TOGGLES SECTION ─── */}
+              <div className="space-y-3 pt-4 border-t border-border/60">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-xs font-bold text-foreground">
+                      Widget Gallery ({visibleWidgets.length} Active)
+                    </label>
+                    <p className="text-[10px] text-muted-foreground">
+                      Turn widgets on or off and set their layout width
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-[calc(100vh-380px)] overflow-y-auto pr-1">
+                  {allWidgetsList.map((item) => {
+                    const Icon = item.meta.icon;
+                    const isVisible = item.visible;
+                    const isFullWidth = item.colSpan >= 12;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className={cn(
+                          "p-3 rounded-2xl border transition-all duration-150 space-y-2",
+                          isVisible
+                            ? "bg-background border-border shadow-xs"
+                            : "bg-muted/20 border-border/50 opacity-60 hover:opacity-90"
+                        )}
+                      >
+                        {/* Row 1: Icon, Title, and ON/OFF Toggle */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={cn(
+                                "p-1.5 rounded-xl shrink-0",
+                                isVisible ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                              )}
+                            >
+                              <Icon className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-foreground truncate block">
+                                {item.meta.title}
+                              </span>
+                              <span className="text-[9px] text-muted-foreground uppercase font-mono tracking-wider">
+                                {item.meta.category}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* iOS-Style Toggle Switch */}
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleWidget(item.id)}
+                            className={cn(
+                              "w-11 h-6 flex items-center rounded-full p-0.5 transition-colors cursor-pointer shrink-0",
+                              isVisible ? "bg-primary" : "bg-muted border border-border"
+                            )}
+                            title={isVisible ? "Turn off widget" : "Turn on widget"}
+                          >
+                            <div
+                              className={cn(
+                                "bg-white w-5 h-5 rounded-full shadow-md transform transition-transform duration-200",
+                                isVisible ? "translate-x-5" : "translate-x-0"
+                              )}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Description */}
+                        <p className="text-[11px] text-muted-foreground leading-relaxed pl-8">
+                          {item.meta.description}
+                        </p>
+
+                        {/* Controls (Only if visible) */}
+                        {isVisible && (
+                          <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/50 pl-8 text-xs">
+                            {/* Width Selector: Compact vs Wide */}
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-muted-foreground font-medium mr-1">
+                                Size:
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void handleToggleSize(item.id)}
+                                className={cn(
+                                  "px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-colors cursor-pointer",
+                                  !isFullWidth
+                                    ? "bg-primary/10 border-primary text-primary"
+                                    : "bg-muted/50 border-border text-muted-foreground hover:text-foreground"
+                                )}
+                              >
+                                Compact
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleToggleSize(item.id)}
+                                className={cn(
+                                  "px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-colors cursor-pointer",
+                                  isFullWidth
+                                    ? "bg-primary/10 border-primary text-primary"
+                                    : "bg-muted/50 border-border text-muted-foreground hover:text-foreground"
+                                )}
+                              >
+                                Wide
+                              </button>
+                            </div>
+
+                            {/* Position Up / Down */}
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-muted-foreground font-medium mr-1">
+                                Position:
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void handleMoveWidget(item.id, "up")}
+                                className="p-1 rounded-md bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground transition-colors cursor-pointer"
+                                title="Move widget up"
+                              >
+                                <ArrowUp className="h-3 w-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleMoveWidget(item.id, "down")}
+                                className="p-1 rounded-md bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground transition-colors cursor-pointer"
+                                title="Move widget down"
+                              >
+                                <ArrowDown className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Studio Footer */}
+            <div className="pt-4 border-t border-border/60 mt-4 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => void handleResetToDefault()}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground border border-border hover:bg-muted/60 transition-colors cursor-pointer"
+                title="Reset this workspace's layout to default preset"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset to Defaults</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsStudioOpen(false)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer shadow-2xs"
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>Done</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
