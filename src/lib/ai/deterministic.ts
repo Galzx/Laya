@@ -508,6 +508,94 @@ Summary of objectives and context for ${topic}.
   };
 }
 
+// ─── TASK AND SUBTASK INTENT PARSER ──────────────────────────────────────────
+
+export interface ParsedTaskIntent {
+  title: string;
+  subtasks: string[];
+  priority: "low" | "medium" | "high" | "urgent";
+  dueDateEpoch: number;
+}
+
+export function parseTaskAndSubtasks(rawSubject: string): ParsedTaskIntent {
+  const text = rawSubject.trim();
+
+  // Priority detection
+  let priority: "low" | "medium" | "high" | "urgent" = "medium";
+  if (/\b(urgent|critical|p0)\b/i.test(text)) priority = "urgent";
+  else if (/\b(high|important|p1)\b/i.test(text)) priority = "high";
+  else if (/\b(low|someday|p3)\b/i.test(text)) priority = "low";
+
+  // Due date detection
+  const dueDateEpoch = parseRelativeDate(text) || getTodayNoon();
+
+  // Subtask clause regex: matches "then for subtasks", "with subtasks", "and subtasks", "with steps", "checklist", etc.
+  const subtaskClauseRegex = /(?:,\s*|\s+)(?:(?:then\s+)?(?:for\s+)?(?:the\s+)?subtasks|(?:with|and|including)\s+(?:the\s+)?(?:subtasks|steps|checklist)|(?:with\s+)?(?:steps|checklist|todos))(?:\s*:|\s+for|\s*,|\s+-|\s+)\s*(.+)$/i;
+
+  let titlePart = text;
+  let rawSubtasksPart: string | null = null;
+
+  const match = text.match(subtaskClauseRegex);
+  if (match && match.index !== undefined) {
+    titlePart = text.slice(0, match.index).trim();
+    rawSubtasksPart = match[1].trim();
+  } else if (text.includes("\n")) {
+    const lines = text.split(/\n+/);
+    if (lines.length > 1 && /^[\s*•\-–—\d.)\]]/.test(lines[1])) {
+      titlePart = lines[0].trim();
+      rawSubtasksPart = lines.slice(1).join("\n").trim();
+    }
+  }
+
+  // Clean title
+  let cleanTitle = titlePart
+    .replace(/\b(urgent|critical|high priority|medium priority|low priority|priority)\b/gi, "")
+    .replace(/\b(due today|due tomorrow|today|tomorrow|by friday|next week)\b/gi, "")
+    .trim()
+    .replace(/^(to\s+|for\s+)/i, "")
+    .replace(/^["'`]|["'`]$/g, "")
+    .trim();
+
+  if (!cleanTitle) cleanTitle = titlePart;
+  cleanTitle = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
+
+  // Parse subtasks
+  let subtasks: string[] = [];
+  if (rawSubtasksPart) {
+    if (rawSubtasksPart.includes("\n")) {
+      subtasks = rawSubtasksPart
+        .split(/\n+/)
+        .map((line) => line.replace(/^[\s*•\-–—\d.)\]]+/, "").trim())
+        .filter((line) => line.length > 0);
+    } else if (rawSubtasksPart.includes(" - ")) {
+      subtasks = rawSubtasksPart
+        .split(/\s+-\s+/)
+        .map((item) => item.replace(/^[\s*•\-–—\d.)\]]+/, "").trim())
+        .filter((item) => item.length > 0);
+    } else {
+      subtasks = rawSubtasksPart
+        .split(/[,;]+/)
+        .map((item) => item.replace(/^[\s*•\-–—\d.)\]]+/, "").trim())
+        .filter((item) => item.length > 0);
+    }
+    // Filter quotes and trim
+    subtasks = subtasks.map((s) => s.replace(/^["'`]|["'`]$/g, "").trim()).filter(Boolean);
+  }
+
+  // If no explicit subtasks provided by user, fall back to domain match blueprint
+  if (subtasks.length === 0) {
+    const blueprint = matchDomainSubtasks(cleanTitle);
+    subtasks = blueprint.steps.slice(0, 4);
+  }
+
+  return {
+    title: cleanTitle,
+    subtasks,
+    priority,
+    dueDateEpoch,
+  };
+}
+
 // ─── MAIN DETERMINISTIC INTENT ENGINE WITH TYPO TOLERANCE ─────────────────────
 
 export function tryDeterministicIntent(
@@ -1060,40 +1148,27 @@ ${getActiveTasksSummary()}`,
   }
 
   // 6. TASK CREATION
-  const addTaskMatch = q.match(/^(?:add|create|make|schedule|remind me to|log|new)\s+(?:a\s+)?task(?:\s+(?:called|named|for|to))?\s+(.+)/i);
+  const addTaskMatch = prompt.match(/^(?:add|create|make|schedule|remind me to|log|new)\s+(?:a\s+)?task(?:\s+(?:called|named|for|to))?\s+(.+)/i);
   if (addTaskMatch) {
     const rawSubject = addTaskMatch[1].trim();
+    const { title, subtasks, priority, dueDateEpoch } = parseTaskAndSubtasks(rawSubject);
 
-    let priority: "low" | "medium" | "high" | "urgent" = "medium";
-    if (/\b(urgent|critical|p0)\b/i.test(rawSubject)) priority = "urgent";
-    else if (/\b(high|important|p1)\b/i.test(rawSubject)) priority = "high";
-    else if (/\b(low|someday|p3)\b/i.test(rawSubject)) priority = "low";
-
-    const dueDateEpoch = parseRelativeDate(rawSubject) || getTodayNoon();
-
-    let cleanTitle = rawSubject
-      .replace(/\b(urgent|critical|high priority|medium priority|low priority)\b/gi, "")
-      .replace(/\b(due today|due tomorrow|today|tomorrow|by friday|next week)\b/gi, "")
-      .trim()
-      .replace(/^(to\s+|for\s+)/i, "");
-
-    if (!cleanTitle) cleanTitle = rawSubject;
-    cleanTitle = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
-
-    const blueprint = matchDomainSubtasks(cleanTitle);
+    const subtasksSnippet = subtasks.length > 0
+      ? ` with ${subtasks.length} subtask${subtasks.length > 1 ? "s" : ""}`
+      : "";
 
     return {
       source: "deterministic",
-      content: `I've prepared a new task card for you: **"${cleanTitle}"** (${priority.toUpperCase()}, due ${new Date(dueDateEpoch * 1000).toLocaleDateString()}).
+      content: `I've prepared a new task card for you: **"${title}"**${subtasksSnippet} (${priority.toUpperCase()}, due ${new Date(dueDateEpoch * 1000).toLocaleDateString()}).
 
 Click below to commit it directly to your workspace:`,
       actionPayload: {
         type: "create_task",
         task: {
-          title: cleanTitle,
+          title,
           priority,
           dueDateEpoch,
-          subtasks: blueprint.steps.slice(0, 4),
+          subtasks,
         },
       },
     };

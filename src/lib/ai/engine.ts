@@ -2,7 +2,7 @@ import type { Task } from "../../components/tasks/TasksView";
 import type { Project } from "../../components/projects/ProjectsView";
 import type { Note } from "../../components/notes/NoteEditor";
 import type { AiProviderConfig, ChatMessage, ActionPayload } from "./types";
-import { tryDeterministicIntent, matchDomainSubtasks } from "./deterministic";
+import { tryDeterministicIntent, matchDomainSubtasks, parseTaskAndSubtasks } from "./deterministic";
 import { getAiConfig } from "./storage";
 
 export interface AiResponse {
@@ -230,17 +230,22 @@ You have **0 overdue tasks** and all high-priority items are on schedule. Total 
   }
 
   // 4. TASK CREATION REQUEST
-  const createMatch = q.match(/^(?:create|add|make|schedule)\s+(?:a\s+)?task(?:\s+(?:called|named|for|to))?\s+(.+)/i);
+  const createMatch = prompt.match(/^(?:create|add|make|schedule)\s+(?:a\s+)?task(?:\s+(?:called|named|for|to))?\s+(.+)/i);
   if (createMatch) {
-    const taskTitle = createMatch[1].trim();
+    const { title, subtasks, priority, dueDateEpoch } = parseTaskAndSubtasks(createMatch[1]);
+    const subtasksSnippet = subtasks.length > 0
+      ? ` with ${subtasks.length} subtask${subtasks.length > 1 ? "s" : ""}`
+      : "";
+
     return {
-      content: `I've prepared a new task card for you: **"${taskTitle}"**. Click below to add it directly to your workspace:`,
+      content: `I've prepared a new task card for you: **"${title}"**${subtasksSnippet}. Click below to add it directly to your workspace:`,
       actionPayload: {
         type: "create_task",
         task: {
-          title: taskTitle,
-          priority: q.includes("urgent") ? "urgent" : q.includes("high") ? "high" : "medium",
-          dueDateEpoch: todayNoonEpoch,
+          title,
+          priority,
+          dueDateEpoch,
+          subtasks,
         },
       },
     };
@@ -584,6 +589,7 @@ ${workspaceContext}
 If the user asks you to create a task, break down a goal, or draft a note, include a JSON block at the very end of your response inside \`\`\`json:action ... \`\`\` containing:
 For task:
 {"type": "create_task", "task": {"title": "...", "priority": "medium"|"urgent"|"high"|"low", "subtasks": ["...", "..."]}}
+CRITICAL: When the user specifies custom subtasks or steps (e.g. "create task named X then for subtasks A, B, C" or "with subtasks A, B"), strictly extract "X" as the title and ["A", "B", "C"] as the subtasks array. Never include the subtasks clause in the task title.
 For note:
 {"type": "create_note", "note": {"title": "...", "content": "..."}}`;
 

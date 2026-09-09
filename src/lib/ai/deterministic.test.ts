@@ -7,6 +7,7 @@ import {
   stringSimilarity,
   calculateEntityMatchScore,
   tryDeterministicIntent,
+  parseTaskAndSubtasks,
 } from "./deterministic";
 
 describe("Deterministic AI Engine & Algorithms", () => {
@@ -194,6 +195,52 @@ describe("Deterministic AI Engine & Algorithms", () => {
           expect(emojiRegex.test(res.content)).toBe(false);
         }
       });
+    });
+  });
+
+  describe("Task and Subtask Intent Parsing", () => {
+    it("parses user prompt with 'then for subtasks' exactly", () => {
+      const res = parseTaskAndSubtasks("sami then for subtasks, meow,arf, aw aw ,ehey");
+      expect(res.title).toBe("Sami");
+      expect(res.subtasks).toEqual(["meow", "arf", "aw aw", "ehey"]);
+    });
+
+    it("parses user prompt through tryDeterministicIntent", () => {
+      const emptyContext = { tasks: [], projects: [], notes: [] };
+      const res = tryDeterministicIntent(
+        "create task named sami then for subtasks, meow,arf, aw aw ,ehey",
+        emptyContext
+      );
+      expect(res).not.toBeNull();
+      expect(res?.actionPayload?.type).toBe("create_task");
+      const task = res?.actionPayload?.task;
+      expect(task?.title).toBe("Sami");
+      expect(task?.subtasks).toEqual(["meow", "arf", "aw aw", "ehey"]);
+    });
+
+    it("parses 'with subtasks:' clause", () => {
+      const res = parseTaskAndSubtasks("Launch Website with subtasks: test forms, deploy frontend, verify SSL");
+      expect(res.title).toBe("Launch Website");
+      expect(res.subtasks).toEqual(["test forms", "deploy frontend", "verify SSL"]);
+    });
+
+    it("parses 'with steps:' clause", () => {
+      const res = parseTaskAndSubtasks("Grocery shopping with steps: milk, eggs, bread");
+      expect(res.title).toBe("Grocery shopping");
+      expect(res.subtasks).toEqual(["milk", "eggs", "bread"]);
+    });
+
+    it("parses multi-line bulleted subtasks", () => {
+      const res = parseTaskAndSubtasks("Quarterly Review\n- Audit Q1 goals\n- Compile metric dashboard\n- Share with team");
+      expect(res.title).toBe("Quarterly Review");
+      expect(res.subtasks).toEqual(["Audit Q1 goals", "Compile metric dashboard", "Share with team"]);
+    });
+
+    it("handles tasks without explicit subtasks by falling back to domain template", () => {
+      const res = parseTaskAndSubtasks("Build user authentication screen");
+      expect(res.title).toBe("Build user authentication screen");
+      expect(res.subtasks.length).toBeGreaterThan(0);
+      expect(res.subtasks[0]).toContain("UI requirements");
     });
   });
 });
