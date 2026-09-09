@@ -9,7 +9,12 @@ import {
   type SoundscapeTrackId,
   type AmbientSoundType,
 } from "./sound";
-import { setAlwaysOnTop, setNativeFullscreen } from "./desktopWindow";
+import {
+  setAlwaysOnTop,
+  setNativeFullscreen,
+  showMiniTimer,
+  hideMiniTimer,
+} from "./desktopWindow";
 
 export type TimerMode = "pomodoro" | "deepFocus" | "shortBreak" | "longBreak" | "custom";
 
@@ -60,6 +65,11 @@ interface FocusContextType {
   setAutoFullscreenZen: (val: boolean) => void;
   autoAlwaysOnTopFocus: boolean;
   setAutoAlwaysOnTopFocus: (val: boolean) => void;
+  autoPopoutMiniTimer: boolean;
+  setAutoPopoutMiniTimer: (val: boolean) => void;
+  isMiniTimerOpen: boolean;
+  openMiniTimer: () => void;
+  closeMiniTimer: () => void;
   ambientType: AmbientSoundType;
   ambientVol: number;
   showMixerStudio: boolean;
@@ -122,6 +132,15 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (typeof window === "undefined") return false;
     return localStorage.getItem("laya-focus-auto-aot") === "true";
   });
+
+  const [autoPopoutMiniTimer, setAutoPopoutMiniTimerState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const val = localStorage.getItem("laya-focus-auto-popout-mini");
+    return val !== null ? val === "true" : true;
+  });
+  const [isMiniTimerOpen, setIsMiniTimerOpen] = useState<boolean>(false);
+  const isMiniTimerOpenRef = useRef<boolean>(false);
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
   // Selected Task
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -506,6 +525,116 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem("laya-focus-auto-aot", String(val));
   }, []);
 
+  const openMiniTimer = useCallback(() => {
+    playTaskPopSound();
+    void showMiniTimer();
+    setIsMiniTimerOpen(true);
+    isMiniTimerOpenRef.current = true;
+  }, []);
+
+  const closeMiniTimer = useCallback(() => {
+    playTaskPopSound();
+    void hideMiniTimer();
+    setIsMiniTimerOpen(false);
+    isMiniTimerOpenRef.current = false;
+  }, []);
+
+  const setAutoPopoutMiniTimer = useCallback((val: boolean) => {
+    setAutoPopoutMiniTimerState(val);
+    localStorage.setItem("laya-focus-auto-popout-mini", String(val));
+  }, []);
+
+  // Sync state snapshot to localStorage and BroadcastChannel
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const snapshot = {
+      isRunning,
+      timeLeft,
+      totalDuration: totalDurationSeconds,
+      currentMode: mode,
+      activeTaskTitle: selectedTaskTitle,
+      sessionsCompletedToday,
+    };
+    try {
+      localStorage.setItem("laya_focus_state_snapshot", JSON.stringify(snapshot));
+    } catch {
+      // Ignore storage errors
+    }
+
+    if (broadcastChannelRef.current) {
+      broadcastChannelRef.current.postMessage({
+        type: "STATE_UPDATE",
+        payload: snapshot,
+      });
+    }
+  }, [isRunning, timeLeft, totalDurationSeconds, mode, selectedTaskTitle, sessionsCompletedToday]);
+
+  // Setup broadcast channel receiver for commands from mini timer window
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return;
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("laya_focus_sync_channel");
+      broadcastChannelRef.current = channel;
+
+      channel.onmessage = (event) => {
+        const { type } = event.data || {};
+        if (type === "TOGGLE_PLAY") {
+          toggleRunning();
+        } else if (type === "SKIP") {
+          skipTimer();
+        } else if (type === "REQUEST_STATE") {
+          channel?.postMessage({
+            type: "STATE_UPDATE",
+            payload: {
+              isRunning,
+              timeLeft,
+              totalDuration: totalDurationSeconds,
+              currentMode: mode,
+              activeTaskTitle: selectedTaskTitle,
+              sessionsCompletedToday,
+            },
+          });
+        }
+      };
+    } catch {
+      // BroadcastChannel unavailable
+    }
+
+    return () => {
+      if (channel) channel.close();
+    };
+  }, [isRunning, timeLeft, totalDurationSeconds, mode, selectedTaskTitle, sessionsCompletedToday, toggleRunning, skipTimer]);
+
+  // Auto pop-out mini timer on leaving Laya (window blur) when timer is actively running
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleBlur = () => {
+      if (isRunning && autoPopoutMiniTimer && !isMiniTimerOpenRef.current) {
+        void showMiniTimer();
+        setIsMiniTimerOpen(true);
+        isMiniTimerOpenRef.current = true;
+      }
+    };
+
+    const handleFocus = () => {
+      if (isMiniTimerOpenRef.current) {
+        void hideMiniTimer();
+        setIsMiniTimerOpen(false);
+        isMiniTimerOpenRef.current = false;
+      }
+    };
+
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [isRunning, autoPopoutMiniTimer]);
+
   const formatTime = useCallback((seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -542,6 +671,11 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setAutoFullscreenZen,
         autoAlwaysOnTopFocus,
         setAutoAlwaysOnTopFocus,
+        autoPopoutMiniTimer,
+        setAutoPopoutMiniTimer,
+        isMiniTimerOpen,
+        openMiniTimer,
+        closeMiniTimer,
         ambientType,
         ambientVol,
         showMixerStudio,

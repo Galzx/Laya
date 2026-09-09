@@ -92,17 +92,43 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
-document.documentElement.classList.remove("dark");
+const isMiniTimer =
+  typeof window !== "undefined" &&
+  (window.location.search.indexOf("window=mini-timer") !== -1 ||
+    window.location.hash.indexOf("window=mini-timer") !== -1);
+
+if (isMiniTimer) {
+  try {
+    const savedTheme = localStorage.getItem("laya_theme") || "default";
+    import("./lib/theme").then(({ applyTheme }) => {
+      applyTheme(savedTheme);
+    });
+  } catch {
+    // Ignore theme initialization error
+  }
+} else {
+  document.documentElement.classList.remove("dark");
+}
 
 const loadingEl = document.getElementById("laya-loading");
 if (loadingEl) {
   loadingEl.remove();
 }
 
+const MiniTimerWidget = isMiniTimer
+  ? React.lazy(() => import("./components/focus/MiniTimerWidget"))
+  : null;
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      {isMiniTimer && MiniTimerWidget ? (
+        <React.Suspense fallback={null}>
+          <MiniTimerWidget />
+        </React.Suspense>
+      ) : (
+        <App />
+      )}
     </ErrorBoundary>
   </React.StrictMode>
 );

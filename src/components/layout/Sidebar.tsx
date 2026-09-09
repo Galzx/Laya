@@ -10,7 +10,6 @@ import {
   Bot,
   TrendingUp,
   Settings,
-  PanelLeftClose,
   BookMarked,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
@@ -60,7 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   todayTaskCount = 0,
   isCollapsed = false,
-  onToggleCollapse,
+  onToggleCollapse: _onToggleCollapse,
 }) => {
   return (
     <aside
@@ -98,17 +97,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title="Go to Dashboard"
           >
             L
-          </button>
-        )}
-
-        {onToggleCollapse && !isCollapsed && (
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-background/80 transition-colors cursor-pointer"
-            title="Collapse sidebar"
-          >
-            <PanelLeftClose className="h-4 w-4" />
           </button>
         )}
       </div>

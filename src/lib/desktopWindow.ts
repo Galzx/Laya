@@ -48,3 +48,35 @@ export async function isNativeFullscreen(): Promise<boolean> {
     return false;
   }
 }
+
+export async function showMiniTimer(): Promise<void> {
+  try {
+    await invoke("show_mini_timer_window");
+  } catch {
+    // Non-Tauri or test environment
+  }
+}
+
+export async function hideMiniTimer(): Promise<void> {
+  try {
+    await invoke("hide_mini_timer_window");
+  } catch {
+    // Non-Tauri or test environment
+  }
+}
+
+export async function restoreMainWindow(): Promise<void> {
+  try {
+    await invoke("restore_main_window");
+  } catch {
+    // Non-Tauri or test environment
+  }
+}
+
+export async function isMiniTimerOpen(): Promise<boolean> {
+  try {
+    return await invoke<boolean>("is_mini_timer_open");
+  } catch {
+    return false;
+  }
+}

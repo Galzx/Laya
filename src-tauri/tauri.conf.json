@@ -12,11 +12,25 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "laya",
         "width": 1100,
         "height": 750,
         "minWidth": 800,
         "minHeight": 600
+      },
+      {
+        "label": "mini-timer",
+        "title": "Laya Focus",
+        "url": "index.html?window=mini-timer",
+        "width": 300,
+        "height": 92,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false
       }
     ],
     "security": {

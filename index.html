@@ -123,6 +123,9 @@
           errText.innerText = 'Unhandled Rejection: ' + (e.reason ? (e.reason.stack || e.reason.toString()) : 'Unknown');
         }
       });
+      if (window.location.search.indexOf('window=mini-timer') !== -1 || window.location.hash.indexOf('window=mini-timer') !== -1) {
+        document.documentElement.style.background = 'transparent';
+      }
     </script>
   </head>
 

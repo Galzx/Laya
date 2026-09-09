@@ -1593,6 +1593,57 @@ fn is_window_fullscreen(window: tauri::Window) -> Result<bool, String> {
     window.is_fullscreen().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn show_mini_timer_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(mini) = app.get_webview_window("mini-timer") {
+        if let Ok(Some(monitor)) = mini.current_monitor() {
+            let size = monitor.size();
+            let scale_factor = monitor.scale_factor();
+            let win_w = (300.0 * scale_factor) as i32;
+            let win_h = (92.0 * scale_factor) as i32;
+            let x = size.width as i32 - win_w - (32.0 * scale_factor) as i32;
+            let y = size.height as i32 - win_h - (64.0 * scale_factor) as i32;
+            let _ = mini.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
+        }
+        mini.set_always_on_top(true).map_err(|e| e.to_string())?;
+        mini.show().map_err(|e| e.to_string())?;
+        mini.set_focus().map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("Mini timer window not configured".to_string())
+    }
+}
+
+#[tauri::command]
+fn hide_mini_timer_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(mini) = app.get_webview_window("mini-timer") {
+        mini.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn restore_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(mini) = app.get_webview_window("mini-timer") {
+        let _ = mini.hide();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.unminimize();
+        let _ = main.set_focus();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn is_mini_timer_open(app: tauri::AppHandle) -> Result<bool, String> {
+    if let Some(mini) = app.get_webview_window("mini-timer") {
+        mini.is_visible().map_err(|e| e.to_string())
+    } else {
+        Ok(false)
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1658,7 +1709,11 @@ pub fn run() {
             import_full_workspace_json,
             set_window_always_on_top,
             set_window_fullscreen,
-            is_window_fullscreen
+            is_window_fullscreen,
+            show_mini_timer_window,
+            hide_mini_timer_window,
+            restore_main_window,
+            is_mini_timer_open
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

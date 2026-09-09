@@ -42,6 +42,7 @@ import {
   Target,
   Pin,
   Maximize2,
+  PictureInPicture2,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { getAiConfig, saveAiConfig } from "../../lib/ai/storage";
@@ -176,6 +177,8 @@ export const SettingsView: React.FC = () => {
     toggleAlwaysOnTop,
     autoAlwaysOnTopFocus,
     setAutoAlwaysOnTopFocus,
+    autoPopoutMiniTimer,
+    setAutoPopoutMiniTimer,
     autoFullscreenZen,
     setAutoFullscreenZen,
     alarmSoundId,
@@ -1116,6 +1119,40 @@ export const SettingsView: React.FC = () => {
               </span>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Auto Pop-out Mini Timer when leaving Laya */}
+                <div className="p-4 rounded-xl border border-border bg-background flex items-start justify-between gap-4 shadow-2xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <PictureInPicture2 className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-xs font-semibold text-foreground">
+                        Auto Pop-out Mini Timer on Leaving Laya
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Smoothly pops out a sleek, compact focus timer widget hovering on top of all apps whenever you switch away from Laya during an active session.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAutoPopoutMiniTimer(!autoPopoutMiniTimer)}
+                    className={cn(
+                      "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                      autoPopoutMiniTimer ? "bg-primary" : "bg-muted"
+                    )}
+                    role="switch"
+                    aria-checked={autoPopoutMiniTimer}
+                    title="Toggle auto pop-out mini timer"
+                  >
+                    <span
+                      className={cn(
+                        "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-xs ring-0 transition duration-200 ease-in-out",
+                        autoPopoutMiniTimer ? "translate-x-5" : "translate-x-0"
+                      )}
+                    />
+                  </button>
+                </div>
+
                 {/* Float on Top during Focus */}
                 <div className="p-4 rounded-xl border border-border bg-background flex items-start justify-between gap-4 shadow-2xs">
                   <div className="space-y-1">

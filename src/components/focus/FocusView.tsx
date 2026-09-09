@@ -26,6 +26,7 @@ import {
   Maximize,
   Minimize2,
   Pin,
+  PictureInPicture2,
   History,
   Trash2,
   Check,
@@ -72,6 +73,9 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
     toggleAlwaysOnTop,
     isFullscreen,
     toggleFullscreen,
+    isMiniTimerOpen,
+    openMiniTimer,
+    closeMiniTimer,
     ambientType,
     ambientVol,
     showMixerStudio,
@@ -237,6 +241,22 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
           >
             <Maximize2 className="h-3.5 w-3.5" />
             <span>Zen Mode</span>
+          </button>
+
+          {/* Pop-out Mini Timer Button */}
+          <button
+            type="button"
+            onClick={isMiniTimerOpen ? closeMiniTimer : openMiniTimer}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border",
+              isMiniTimerOpen
+                ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+                : "text-muted-foreground hover:text-foreground border-border/80 hover:bg-muted"
+            )}
+            title={isMiniTimerOpen ? "Close floating mini timer" : "Pop out floating mini timer widget above all other desktop applications"}
+          >
+            <PictureInPicture2 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{isMiniTimerOpen ? "Mini Timer Open" : "Pop out Timer"}</span>
           </button>
 
           {/* Float on Top (Pin Window) Button */}
