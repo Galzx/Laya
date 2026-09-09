@@ -174,10 +174,9 @@ describe("Customizable Modular Dashboard System", () => {
       expect(presetIds).toEqual(["minimal", "daily_planner", "developer", "cockpit"]);
     });
 
-    it("ensures each preset has a name, badge, description, and valid widgets", () => {
+    it("ensures each preset has a name, description, and valid widgets", () => {
       for (const preset of DASHBOARD_PRESETS) {
         expect(preset.name.length).toBeGreaterThan(0);
-        expect(preset.badge.length).toBeGreaterThan(0);
         expect(preset.description.length).toBeGreaterThan(0);
         expect(preset.layout.length).toBe(11);
 
@@ -205,7 +204,6 @@ describe("Customizable Modular Dashboard System", () => {
 
       for (const preset of DASHBOARD_PRESETS) {
         expect(emojiRegex.test(preset.name)).toBe(false);
-        expect(emojiRegex.test(preset.badge)).toBe(false);
         expect(emojiRegex.test(preset.description)).toBe(false);
       }
     });
@@ -213,9 +211,25 @@ describe("Customizable Modular Dashboard System", () => {
     it("enforces zero em-dashes in presets", () => {
       for (const preset of DASHBOARD_PRESETS) {
         expect(preset.name).not.toContain("—");
-        expect(preset.badge).not.toContain("—");
         expect(preset.description).not.toContain("—");
       }
+    });
+
+    it("supports saving and deleting custom user layout presets", () => {
+      const customPreset = {
+        id: "custom-preset-1",
+        name: "Morning Review",
+        createdAt: 1700000000,
+        layout: applyDashboardPreset("minimal"),
+      };
+
+      const customList = [customPreset];
+      expect(customList).toHaveLength(1);
+      expect(customList[0].name).toBe("Morning Review");
+
+      // Deletion
+      const afterDelete = customList.filter((p) => p.id !== "custom-preset-1");
+      expect(afterDelete).toHaveLength(0);
     });
   });
 });

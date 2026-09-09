@@ -119,7 +119,13 @@ export interface DashboardPreset {
   id: DashboardPresetId;
   name: string;
   description: string;
-  badge: string;
+  layout: DashboardWidgetConfig[];
+}
+
+export interface CustomDashboardPreset {
+  id: string;
+  name: string;
+  createdAt: number;
   layout: DashboardWidgetConfig[];
 }
 
@@ -128,7 +134,6 @@ export const DASHBOARD_PRESETS: DashboardPreset[] = [
     id: "minimal",
     name: "Minimalist Focus",
     description: "Distraction-free workspace with Today's actions, Deep Work, and Quick Capture",
-    badge: "Clean & Simple",
     layout: [
       { id: "today_tasks", colSpan: 7, visible: true, order: 0 },
       { id: "deep_work", colSpan: 5, visible: true, order: 1 },
@@ -147,7 +152,6 @@ export const DASHBOARD_PRESETS: DashboardPreset[] = [
     id: "daily_planner",
     name: "Daily Planner & Habits",
     description: "Balanced schedule with daily habits, calendar agenda, and morning briefing",
-    badge: "Most Popular",
     layout: [
       { id: "metrics_glance", colSpan: 12, visible: true, order: 0 },
       { id: "today_tasks", colSpan: 7, visible: true, order: 1 },
@@ -166,7 +170,6 @@ export const DASHBOARD_PRESETS: DashboardPreset[] = [
     id: "developer",
     name: "Developer & Engineering",
     description: "Built for software development, coding subtasks, and active project sprints",
-    badge: "Technical",
     layout: [
       { id: "metrics_glance", colSpan: 12, visible: true, order: 0 },
       { id: "today_tasks", colSpan: 7, visible: true, order: 1 },
@@ -185,7 +188,6 @@ export const DASHBOARD_PRESETS: DashboardPreset[] = [
     id: "cockpit",
     name: "Executive Cockpit",
     description: "Complete panoramic view with all metrics, projects, notes, and navigation hubs",
-    badge: "All-in-One",
     layout: [
       { id: "metrics_glance", colSpan: 12, visible: true, order: 0 },
       { id: "today_tasks", colSpan: 7, visible: true, order: 1 },

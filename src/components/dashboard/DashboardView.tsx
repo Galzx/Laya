@@ -14,6 +14,8 @@ import {
   AlertCircle,
   X,
   LayoutTemplate,
+  Bookmark,
+  Trash2,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { playTaskPopSound } from "../../lib/sound";
@@ -31,6 +33,7 @@ import {
   ALL_WIDGETS_METADATA,
   DASHBOARD_PRESETS,
   type DashboardPresetId,
+  type CustomDashboardPreset,
   applyDashboardPreset,
   getWorkspaceDefaultLayout,
 } from "./defaultLayouts";
@@ -106,7 +109,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [aggregates, setAggregates] = useState<DashboardAggregates | null>(null);
 
+  // Custom User Saved Presets
+  const [customPresets, setCustomPresets] = useState<CustomDashboardPreset[]>([]);
+  const [isAddingCustomPreset, setIsAddingCustomPreset] = useState(false);
+  const [customPresetName, setCustomPresetName] = useState("");
+
   const settingKey = `dashboard_layout_${workspaceId}`;
+  const customPresetsSettingKey = `dashboard_custom_presets_${workspaceId}`;
 
   // Load SQL cross-table aggregates
   const loadAggregates = useCallback(async () => {
@@ -120,7 +129,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   }, [workspaceId]);
 
-  // Load layout from SQLite settings table
+  // Load layout and custom presets from SQLite settings table
   useEffect(() => {
     let isMounted = true;
     async function loadLayout() {
@@ -128,8 +137,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         const settingsRes = await invoke<{ key: string; value: string }[]>("get_settings").catch(
           () => []
         );
-        const layoutSetting = settingsRes.find((s) => s.key === settingKey);
 
+        // Load custom presets library
+        const customPresetsSetting = settingsRes.find((s) => s.key === customPresetsSettingKey);
+        if (customPresetsSetting?.value && isMounted) {
+          try {
+            const parsedCustom = JSON.parse(customPresetsSetting.value) as CustomDashboardPreset[];
+            if (Array.isArray(parsedCustom)) {
+              setCustomPresets(parsedCustom);
+            }
+          } catch (e) {
+            console.error("Failed to parse custom presets JSON:", e);
+          }
+        }
+
+        // Load current layout
+        const layoutSetting = settingsRes.find((s) => s.key === settingKey);
         if (layoutSetting?.value && isMounted) {
           try {
             const parsed = JSON.parse(layoutSetting.value) as DashboardWidgetConfig[];
@@ -163,7 +186,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [workspaceId, workspaceName, settingKey, loadAggregates]);
+  }, [workspaceId, workspaceName, settingKey, customPresetsSettingKey, loadAggregates]);
 
   // Refresh aggregates upon tasks changes
   useEffect(() => {
@@ -188,6 +211,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     playTaskPopSound();
     const newLayout = applyDashboardPreset(presetId);
     await saveLayout(newLayout);
+  };
+
+  // Apply a custom user-saved preset
+  const handleApplyCustomPreset = async (preset: CustomDashboardPreset) => {
+    playTaskPopSound();
+    await saveLayout([...preset.layout]);
+  };
+
+  // Save current arrangement as a new custom preset
+  const handleSaveCurrentAsCustomPreset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = customPresetName.trim();
+    if (!name) return;
+
+    const newPreset: CustomDashboardPreset = {
+      id: `custom-layout-${Date.now()}`,
+      name,
+      createdAt: Math.floor(Date.now() / 1000),
+      layout: [...widgets],
+    };
+
+    const updated = [newPreset, ...customPresets];
+    setCustomPresets(updated);
+    setCustomPresetName("");
+    setIsAddingCustomPreset(false);
+    playTaskPopSound();
+
+    try {
+      await invoke("update_setting", {
+        key: customPresetsSettingKey,
+        value: JSON.stringify(updated),
+      });
+    } catch (err) {
+      console.error("Failed to save custom preset:", err);
+    }
+  };
+
+  // Delete a custom user-saved preset
+  const handleDeleteCustomPreset = async (presetId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = customPresets.filter((p) => p.id !== presetId);
+    setCustomPresets(updated);
+    try {
+      await invoke("update_setting", {
+        key: customPresetsSettingKey,
+        value: JSON.stringify(updated),
+      });
+    } catch (err) {
+      console.error("Failed to delete custom preset:", err);
+    }
   };
 
   // Toggle widget visibility (ON / OFF)
@@ -444,14 +517,109 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="space-y-6 flex-1">
+              {/* ─── SAVE CURRENT LAYOUT ACTION ─── */}
+              <div className="p-3 rounded-2xl bg-muted/30 border border-border space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                    <Bookmark className="h-3.5 w-3.5 text-primary" />
+                    <span>Save Current Layout</span>
+                  </div>
+                  {!isAddingCustomPreset && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingCustomPreset(true)}
+                      className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-semibold cursor-pointer"
+                    >
+                      <Plus className="h-3 w-3" />
+                      <span>Save as Preset</span>
+                    </button>
+                  )}
+                </div>
+
+                {isAddingCustomPreset && (
+                  <form onSubmit={(e) => void handleSaveCurrentAsCustomPreset(e)} className="space-y-2 pt-1 animate-fade-in">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="e.g. Morning Focus, Sprint Review…"
+                      value={customPresetName}
+                      onChange={(e) => setCustomPresetName(e.target.value)}
+                      className="w-full bg-background border border-border rounded-xl px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    />
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingCustomPreset(false);
+                          setCustomPresetName("");
+                        }}
+                        className="px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!customPresetName.trim()}
+                        className="px-3 py-1 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 cursor-pointer shadow-2xs"
+                      >
+                        Save Layout
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+              {/* ─── MY SAVED CUSTOM LAYOUTS (IF ANY) ─── */}
+              {customPresets.length > 0 && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                      <span>My Saved Layouts ({customPresets.length})</span>
+                    </label>
+                    <span className="text-[10px] text-muted-foreground">Click to apply</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {customPresets.map((preset) => {
+                      const activeCount = preset.layout.filter((w) => w.visible).length;
+                      return (
+                        <div
+                          key={preset.id}
+                          onClick={() => void handleApplyCustomPreset(preset)}
+                          className="p-3 rounded-2xl bg-muted/40 hover:bg-muted/80 border border-border/80 hover:border-primary/50 text-left transition-all cursor-pointer shadow-2xs group space-y-1 relative"
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-bold text-xs text-foreground group-hover:text-primary transition-colors truncate">
+                              {preset.name}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => void handleDeleteCustomPreset(preset.id, e)}
+                              className="p-1 rounded-md text-muted-foreground/50 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+                              title="Delete saved layout"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground">
+                            {activeCount} active widget{activeCount === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* ─── 1-CLICK STARTER PRESETS SECTION ─── */}
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
                     <LayoutTemplate className="h-3.5 w-3.5 text-primary" />
-                    <span>1-Click Starter Layouts</span>
+                    <span>Starter Layouts</span>
                   </label>
-                  <span className="text-[10px] text-muted-foreground">Click to apply instantly</span>
+                  <span className="text-[10px] text-muted-foreground">Click to apply</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -462,14 +630,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       onClick={() => void handleApplyPreset(preset.id)}
                       className="p-3 rounded-2xl bg-muted/40 hover:bg-muted/80 border border-border/80 hover:border-primary/50 text-left transition-all cursor-pointer shadow-2xs group active:scale-95 space-y-1"
                     >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-bold text-xs text-foreground group-hover:text-primary transition-colors">
-                          {preset.name}
-                        </span>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-background border border-border text-muted-foreground shrink-0 font-medium">
-                          {preset.badge}
-                        </span>
-                      </div>
+                      <span className="font-bold text-xs text-foreground group-hover:text-primary transition-colors block">
+                        {preset.name}
+                      </span>
                       <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed">
                         {preset.description}
                       </p>
@@ -491,7 +654,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 </div>
 
-                <div className="space-y-2 max-h-[calc(100vh-380px)] overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-[calc(100vh-420px)] overflow-y-auto pr-1">
                   {allWidgetsList.map((item) => {
                     const Icon = item.meta.icon;
                     const isVisible = item.visible;
@@ -518,14 +681,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             >
                               <Icon className="h-4 w-4" />
                             </div>
-                            <div className="min-w-0">
-                              <span className="text-xs font-bold text-foreground truncate block">
-                                {item.meta.title}
-                              </span>
-                              <span className="text-[9px] text-muted-foreground uppercase font-mono tracking-wider">
-                                {item.meta.category}
-                              </span>
-                            </div>
+                            <span className="text-xs font-bold text-foreground truncate block">
+                              {item.meta.title}
+                            </span>
                           </div>
 
                           {/* iOS-Style Toggle Switch */}
