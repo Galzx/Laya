@@ -765,6 +765,21 @@ async fn clear_archived_tasks(workspace_id: String, pool: State<'_, DbPool>) -> 
 }
 
 #[tauri::command]
+async fn get_workspace_subtasks(workspace_id: String, pool: State<'_, DbPool>) -> Result<Vec<Subtask>, String> {
+    sqlx::query_as::<_, Subtask>(
+        "SELECT s.id, s.task_id, s.title, s.is_completed, s.position, s.created_at 
+         FROM subtasks s 
+         JOIN tasks t ON s.task_id = t.id 
+         WHERE t.workspace_id = ? AND t.status != 'archived' 
+         ORDER BY s.position ASC, s.created_at ASC"
+    )
+    .bind(workspace_id)
+    .fetch_all(&*pool)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn get_subtasks(task_id: String, pool: State<'_, DbPool>) -> Result<Vec<Subtask>, String> {
     sqlx::query_as::<_, Subtask>(
         "SELECT id, task_id, title, is_completed, position, created_at FROM subtasks WHERE task_id = ? ORDER BY position ASC, created_at ASC"
@@ -1597,6 +1612,7 @@ pub fn run() {
             clear_completed_tasks,
             clear_project_completed_tasks,
             clear_archived_tasks,
+            get_workspace_subtasks,
             get_subtasks,
             create_subtask,
             toggle_subtask,

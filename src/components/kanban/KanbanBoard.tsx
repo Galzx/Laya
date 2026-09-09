@@ -13,12 +13,30 @@ import {
   Sparkles,
   ArrowRightLeft,
   SlidersHorizontal,
-  Check,
+  CheckSquare,
+  Square,
+  Repeat,
+  Search,
+  X,
+  ChevronDown,
+  ChevronRight,
+  Trash2,
+  Archive,
+  Save,
+  AlertTriangle,
+  Edit3,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { playTaskPopSound } from "../../lib/sound";
-import type { Task } from "../tasks/TasksView";
+import type { Task, Subtask } from "../tasks/TasksView";
 import type { Project } from "../projects/ProjectsView";
+import {
+  parseRecurrenceFromDescription,
+  processRecurringCompletion,
+  embedRecurrenceInDescription,
+  formatRecurrenceLabel,
+  type RecurrenceFrequency,
+} from "../../lib/recurrence";
 
 interface KanbanBoardProps {
   tasks: Task[];
@@ -50,7 +68,7 @@ const COLUMNS: KanbanColumnConfig[] = [
     accentColor: "text-muted-foreground",
     badgeBg: "bg-muted text-muted-foreground",
     borderHover: "border-muted-foreground/40",
-    description: "Unscheduled thoughts & captures",
+    description: "Unscheduled thoughts and captures",
   },
   {
     id: "todo",
@@ -93,6 +111,22 @@ const DropSlotIndicator: React.FC = () => (
   </div>
 );
 
+function toLocalDateInput(epochSeconds: number | null): string {
+  if (!epochSeconds) return "";
+  const date = new Date(epochSeconds * 1000);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dateInputToEpoch(value: string): number | null {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return Math.floor(new Date(year, month - 1, day, 12).getTime() / 1000);
+}
+
 export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   tasks,
   projects,
@@ -111,6 +145,27 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     insertIndex: number;
   } | null>(null);
   const [openMoveMenuTaskId, setOpenMoveMenuTaskId] = useState<string | null>(null);
+
+  // Subtasks batch map & inline expansion state
+  const [subtasksMap, setSubtasksMap] = useState<Record<string, Subtask[]>>({});
+  const [expandedSubtasksTaskIds, setExpandedSubtasksTaskIds] = useState<Set<string>>(new Set());
+  const [newSubtaskTitleMap, setNewSubtaskTitleMap] = useState<Record<string, string>>({});
+
+  // Slide-over Task Detail / Edit Drawer
+  const [selectedTaskForDrawer, setSelectedTaskForDrawer] = useState<Task | null>(null);
+  const [drawerTitle, setDrawerTitle] = useState("");
+  const [drawerDescription, setDrawerDescription] = useState("");
+  const [drawerPriority, setDrawerPriority] = useState<Task["priority"]>("medium");
+  const [drawerDueDate, setDrawerDueDate] = useState("");
+  const [drawerProjectId, setDrawerProjectId] = useState<string | null>(null);
+  const [drawerRecurrence, setDrawerRecurrence] = useState<RecurrenceFrequency>("none");
+  const [drawerNewSubtask, setDrawerNewSubtask] = useState("");
+  const [isSavingDrawer, setIsSavingDrawer] = useState(false);
+
+  // Search & Filter Toolbar state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<"all" | Task["priority"]>("all");
+  const [selectedProjectFilter, setSelectedProjectFilter] = useState<string>("all");
 
   // Fallback internal edit mode if prop is not provided
   const [internalEditMode, setInternalEditMode] = useState(false);
@@ -132,10 +187,35 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     completed: false,
   });
 
-  // Sync local tasks with parent updates
+  // Load all subtasks for the workspace in a single batch query
+  const loadWorkspaceSubtasks = async () => {
+    if (!workspaceId) return;
+    try {
+      const subs = await invoke<Subtask[]>("get_workspace_subtasks", { workspaceId });
+      const map: Record<string, Subtask[]> = {};
+      for (const s of subs) {
+        if (!map[s.task_id]) map[s.task_id] = [];
+        map[s.task_id].push(s);
+      }
+      setSubtasksMap(map);
+    } catch {
+      // Fallback: silently proceed if batch command isn't available
+    }
+  };
+
   useEffect(() => {
     setLocalTasks(tasks);
-  }, [tasks]);
+    void loadWorkspaceSubtasks();
+  }, [tasks, workspaceId]);
+
+  // Listen to cross-component task updates
+  useEffect(() => {
+    const handleGlobalTasksChanged = () => {
+      void loadWorkspaceSubtasks();
+    };
+    window.addEventListener("laya:tasks-changed", handleGlobalTasksChanged);
+    return () => window.removeEventListener("laya:tasks-changed", handleGlobalTasksChanged);
+  }, [workspaceId]);
 
   // Close open move menu on outside click
   useEffect(() => {
@@ -144,14 +224,38 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     return () => window.removeEventListener("click", handleOutsideClick);
   }, []);
 
-  // Filter tasks if project filter is specified
-  const filteredTasks = projectIdFilter
-    ? localTasks.filter((t) => t.project_id === projectIdFilter)
-    : localTasks;
+  // When opening a task in drawer, populate local fields
+  useEffect(() => {
+    if (selectedTaskForDrawer) {
+      const parsed = parseRecurrenceFromDescription(selectedTaskForDrawer.description);
+      setDrawerTitle(selectedTaskForDrawer.title);
+      setDrawerDescription(parsed.cleanDescription);
+      setDrawerPriority(selectedTaskForDrawer.priority);
+      setDrawerDueDate(toLocalDateInput(selectedTaskForDrawer.due_date));
+      setDrawerProjectId(selectedTaskForDrawer.project_id || null);
+      setDrawerRecurrence(parsed.data?.frequency || "none");
+      setDrawerNewSubtask("");
+    }
+  }, [selectedTaskForDrawer]);
+
+  // Filter tasks based on project, priority, and search query
+  const effectiveProjectFilter = projectIdFilter || (selectedProjectFilter !== "all" ? selectedProjectFilter : null);
+
+  const filteredTasks = localTasks.filter((task) => {
+    if (task.status === "archived") return false;
+    if (effectiveProjectFilter && task.project_id !== effectiveProjectFilter) return false;
+    if (selectedPriorityFilter !== "all" && task.priority !== selectedPriorityFilter) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchTitle = task.title.toLowerCase().includes(q);
+      const matchDesc = task.description?.toLowerCase().includes(q) ?? false;
+      if (!matchTitle && !matchDesc) return false;
+    }
+    return true;
+  });
 
   const getColumnTasks = (columnId: KanbanColumnId) => {
     return filteredTasks.filter((t) => {
-      if (t.status === "archived") return false;
       if (columnId === "inbox") {
         return t.status === "inbox";
       }
@@ -168,19 +272,52 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     });
   };
 
-  const getTaskColumn = (task: Task): KanbanColumnId => {
-    if (task.status === "inbox") return "inbox";
-    if (task.status === "in_progress") return "in_progress";
-    if (task.status === "completed") return "completed";
-    return "todo"; // covers "todo", "planned", "waiting"
-  };
-
-  // Instant optimistic status change
+  // Instant optimistic status change with recurrence advance
   const handleStatusChange = async (taskId: string, targetStatus: KanbanColumnId) => {
     playTaskPopSound();
     setOpenMoveMenuTaskId(null);
 
     const nowEpoch = Math.floor(Date.now() / 1000);
+    const targetTask = localTasks.find((t) => t.id === taskId);
+
+    // Check if advancing a recurring task to completed
+    if (targetStatus === "completed" && targetTask) {
+      const rec = processRecurringCompletion(targetTask.due_date, targetTask.description);
+      if (rec.isRecurring) {
+        // Optimistically update local task with advanced due date and streak
+        setLocalTasks((prev) =>
+          prev.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  description: rec.nextDescription,
+                  due_date: rec.nextDueDate,
+                  updated_at: nowEpoch,
+                }
+              : t
+          )
+        );
+
+        try {
+          await invoke("update_task", {
+            taskId,
+            title: targetTask.title,
+            description: rec.nextDescription,
+            priority: targetTask.priority,
+            dueDate: rec.nextDueDate,
+            nextAction: targetTask.next_action,
+            projectId: targetTask.project_id,
+          });
+          onTasksChanged();
+          window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
+          return;
+        } catch (err) {
+          console.error("Failed to advance recurring task in Kanban:", err);
+          setLocalTasks(tasks);
+          return;
+        }
+      }
+    }
 
     // 1. Instant 0ms Optimistic UI update
     setLocalTasks((prev) =>
@@ -210,14 +347,139 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
     } catch (err) {
       console.error("Failed to update task status in Kanban:", err);
-      // Rollback on error
       setLocalTasks(tasks);
     }
   };
 
-  // ─── ROBUST FLICKER-FREE DRAG & DROP HANDLERS ───
-  // ─── ROBUST PRECISION DRAG & DROP REORDERING ENGINE ───
+  // ─── DIRECT SUBTASK TOGGLE ON CARDS ───
+  const handleToggleSubtask = async (taskId: string, subtaskId: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    playTaskPopSound();
 
+    // 0ms Optimistic local update
+    setSubtasksMap((prev) => {
+      const currentList = prev[taskId] || [];
+      const updatedList = currentList.map((st) =>
+        st.id === subtaskId ? { ...st, is_completed: st.is_completed === 1 ? 0 : 1 } : st
+      );
+      return { ...prev, [taskId]: updatedList };
+    });
+
+    try {
+      await invoke("toggle_subtask", { subtaskId });
+      window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
+    } catch (err) {
+      console.error("Failed to toggle subtask:", err);
+      void loadWorkspaceSubtasks();
+    }
+  };
+
+  // ─── INLINE SUBTASK CREATION ON CARDS ───
+  const handleAddSubtaskInline = async (taskId: string, e: React.FormEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const title = (newSubtaskTitleMap[taskId] || "").trim();
+    if (!title) return;
+
+    // Clear input
+    setNewSubtaskTitleMap((prev) => ({ ...prev, [taskId]: "" }));
+
+    try {
+      const created = await invoke<Subtask>("create_subtask", { taskId, title });
+      playTaskPopSound();
+      setSubtasksMap((prev) => {
+        const currentList = prev[taskId] || [];
+        return { ...prev, [taskId]: [...currentList, created] };
+      });
+      window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
+    } catch (err) {
+      console.error("Failed to add subtask inline:", err);
+    }
+  };
+
+  const toggleSubtasksExpansion = (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setExpandedSubtasksTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
+  // ─── SAVE DRAWER EDITS ───
+  const handleSaveDrawerEdits = async () => {
+    if (!selectedTaskForDrawer) return;
+    setIsSavingDrawer(true);
+    try {
+      const finalDescription = embedRecurrenceInDescription(
+        drawerDescription,
+        drawerRecurrence,
+        parseRecurrenceFromDescription(selectedTaskForDrawer.description).data?.streak || 0
+      );
+      const dueEpoch = dateInputToEpoch(drawerDueDate);
+
+      await invoke("update_task", {
+        taskId: selectedTaskForDrawer.id,
+        title: drawerTitle.trim() || selectedTaskForDrawer.title,
+        description: finalDescription,
+        priority: drawerPriority,
+        dueDate: dueEpoch,
+        nextAction: selectedTaskForDrawer.next_action,
+        projectId: drawerProjectId,
+      });
+
+      playTaskPopSound();
+      setSelectedTaskForDrawer(null);
+      onTasksChanged();
+      window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
+    } catch (err) {
+      console.error("Failed to save task edits from drawer:", err);
+    } finally {
+      setIsSavingDrawer(false);
+    }
+  };
+
+  const handleDeleteSubtaskInDrawer = async (subtaskId: string, taskId: string) => {
+    setSubtasksMap((prev) => {
+      const currentList = prev[taskId] || [];
+      return { ...prev, [taskId]: currentList.filter((s) => s.id !== subtaskId) };
+    });
+    try {
+      await invoke("delete_subtask", { subtaskId });
+      window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
+    } catch (err) {
+      console.error("Failed to delete subtask:", err);
+      void loadWorkspaceSubtasks();
+    }
+  };
+
+  const handleAddSubtaskInDrawer = async (taskId: string, e: React.FormEvent) => {
+    e.preventDefault();
+    const title = drawerNewSubtask.trim();
+    if (!title) return;
+    setDrawerNewSubtask("");
+    try {
+      const created = await invoke<Subtask>("create_subtask", { taskId, title });
+      playTaskPopSound();
+      setSubtasksMap((prev) => {
+        const currentList = prev[taskId] || [];
+        return { ...prev, [taskId]: [...currentList, created] };
+      });
+      window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
+    } catch (err) {
+      console.error("Failed to create subtask in drawer:", err);
+    }
+  };
+
+  // ─── DRAG & DROP HANDLERS ───
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
     if (!editMode) {
       e.preventDefault();
@@ -252,215 +514,128 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     const insertIndex = e.clientY < midY ? index : index + 1;
 
     setDragOverColumn(colId);
-    setDragTarget((prev) => {
-      if (prev?.columnId === colId && prev?.insertIndex === insertIndex) return prev;
-      return { columnId: colId, insertIndex };
-    });
+    setDragTarget({ columnId: colId, insertIndex });
   };
 
-  const handleColumnContainerDragOver = (e: React.DragEvent, colId: KanbanColumnId, totalCards: number) => {
+  const handleColumnContainerDragOver = (
+    e: React.DragEvent,
+    colId: KanbanColumnId,
+    columnTasksCount: number
+  ) => {
     if (!editMode) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    setDragOverColumn(colId);
 
-    setDragTarget((prev) => {
-      if (prev && prev.columnId === colId) return prev;
-      return { columnId: colId, insertIndex: totalCards };
-    });
+    if (dragOverColumn !== colId) {
+      setDragOverColumn(colId);
+    }
+
+    if (!dragTarget || dragTarget.columnId !== colId) {
+      setDragTarget({ columnId: colId, insertIndex: columnTasksCount });
+    }
   };
 
   const handleDrop = async (
     targetColId: KanbanColumnId,
-    targetIndexOverride?: number,
-    e?: React.DragEvent
+    explicitInsertIndex: number | undefined,
+    e: React.DragEvent
   ) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
+    e.preventDefault();
+    e.stopPropagation();
 
-    const taskId =
-      draggedTaskIdRef.current ||
-      draggedTaskId ||
-      e?.dataTransfer?.getData("application/laya-task-id") ||
-      e?.dataTransfer?.getData("text/plain");
-
+    const taskId = draggedTaskIdRef.current || draggedTaskId;
     if (!taskId) {
       handleDragEnd();
       return;
     }
-    const currentTarget = dragTarget;
-    handleDragEnd();
-
-    if (!taskId) return;
 
     const task = localTasks.find((t) => t.id === taskId);
-    if (!task) return;
-
-    const sourceColId = getTaskColumn(task);
-    const resolvedTargetColId = targetColId || currentTarget?.columnId || sourceColId;
-    let resolvedTargetIndex =
-      targetIndexOverride ??
-      (currentTarget?.columnId === resolvedTargetColId ? currentTarget.insertIndex : undefined);
-
-    playTaskPopSound();
-    const nowEpoch = Math.floor(Date.now() / 1000);
-
-    let nextTasks = [...localTasks];
-    const sourceColTasks = getColumnTasks(sourceColId);
-    const targetColTasks =
-      sourceColId === resolvedTargetColId
-        ? sourceColTasks
-        : getColumnTasks(resolvedTargetColId);
-
-    if (resolvedTargetIndex === undefined) {
-      resolvedTargetIndex = targetColTasks.length;
-    }
-
-    const reorderPayload: { id: string; position: number; status?: string }[] = [];
-
-    if (sourceColId === resolvedTargetColId) {
-      // Reordering within the SAME column
-      const items = [...sourceColTasks];
-      const oldIndex = items.findIndex((t) => t.id === taskId);
-      if (oldIndex !== -1) {
-        const [moved] = items.splice(oldIndex, 1);
-        let insertAt = resolvedTargetIndex;
-        if (oldIndex < insertAt) {
-          insertAt = Math.max(0, insertAt - 1);
-        }
-        items.splice(insertAt, 0, moved);
-
-        items.forEach((item, idx) => {
-          reorderPayload.push({
-            id: item.id,
-            position: idx,
-            status: undefined,
-          });
-        });
-
-        const updatedIdsMap = new Map(items.map((it, idx) => [it.id, idx]));
-        nextTasks = nextTasks.map((t) => {
-          const newPos = updatedIdsMap.get(t.id);
-          if (newPos !== undefined) {
-            return { ...t, position: newPos, updated_at: nowEpoch };
-          }
-          return t;
-        });
-      }
-    } else {
-      // Moving ACROSS columns into an exact target slot
-      const updatedDueDate =
-        resolvedTargetColId === "inbox"
-          ? null
-          : (resolvedTargetColId === "todo" || resolvedTargetColId === "in_progress") && !task.due_date
-          ? nowEpoch
-          : task.due_date;
-
-      const updatedTask: Task = {
-        ...task,
-        status: resolvedTargetColId,
-        due_date: updatedDueDate,
-        completed_at: resolvedTargetColId === "completed" ? nowEpoch : null,
-        updated_at: nowEpoch,
-      };
-
-      const targetItems = [...targetColTasks];
-      const insertAt = Math.min(resolvedTargetIndex, targetItems.length);
-      targetItems.splice(insertAt, 0, updatedTask);
-
-      targetItems.forEach((item, idx) => {
-        reorderPayload.push({
-          id: item.id,
-          position: idx,
-          status: item.id === taskId ? resolvedTargetColId : undefined,
-        });
-      });
-
-      const targetIdsMap = new Map(targetItems.map((it, idx) => [it.id, idx]));
-      nextTasks = nextTasks.map((t) => {
-        if (t.id === taskId) {
-          return {
-            ...updatedTask,
-            position: targetIdsMap.get(taskId) ?? 0,
-          };
-        }
-        const newPos = targetIdsMap.get(t.id);
-        if (newPos !== undefined) {
-          return { ...t, position: newPos };
-        }
-        return t;
-      });
-    }
-
-    handleDragEnd();
-    // 1. Optimistic 0ms UI update
-    setLocalTasks(nextTasks);
-
-    // 2. Transactional SQLite persistence
-    try {
-      await invoke("reorder_kanban_tasks", { items: reorderPayload });
-      onTasksChanged();
-      window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
-    } catch (err) {
-      console.error("Failed to persist task reordering in Kanban:", err);
-      // Rollback on error
-      setLocalTasks(tasks);
-    }
-  };
-
-  const handleBoardDrop = (e: React.DragEvent) => {
-    if (!editMode) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    // If dropped anywhere in the board, use active dragOverColumn or find closest
-    let targetColId = dragTarget?.columnId || dragOverColumn;
-    if (!targetColId) {
-      const elem = document.elementFromPoint(e.clientX, e.clientY);
-      const colElem = elem?.closest("[data-column-id]");
-      targetColId = (colElem?.getAttribute("data-column-id") as KanbanColumnId) || null;
-    }
-
-    if (targetColId) {
-      void handleDrop(targetColId, dragTarget?.insertIndex, e);
-    } else {
+    if (!task) {
       handleDragEnd();
+      return;
     }
+
+    const sourceColId =
+      task.status === "inbox"
+        ? "inbox"
+        : task.status === "in_progress"
+        ? "in_progress"
+        : task.status === "completed"
+        ? "completed"
+        : "todo";
+
+    const colTasks = getColumnTasks(targetColId);
+    const targetIdx =
+      explicitInsertIndex !== undefined
+        ? Math.min(Math.max(0, explicitInsertIndex), colTasks.length)
+        : dragTarget?.columnId === targetColId
+        ? dragTarget.insertIndex
+        : colTasks.length;
+
+    // Reset visual indicators immediately
+    handleDragEnd();
+
+    // If dropped in same column at same position, no-op
+    if (sourceColId === targetColId) {
+      const currentIndex = colTasks.findIndex((t) => t.id === taskId);
+      if (currentIndex === targetIdx || currentIndex === targetIdx - 1) {
+        return;
+      }
+    }
+
+    await handleStatusChange(taskId, targetColId);
   };
 
+  // Quick task creation in column
   const handleCreateInColumn = async (columnId: KanbanColumnId, e: React.FormEvent) => {
     e.preventDefault();
-    const title = newTitleMap[columnId]?.trim();
+    const title = (newTitleMap[columnId] || "").trim();
     if (!title) return;
 
-    playTaskPopSound();
-    const todayNoonEpoch =
-      columnId === "todo" || columnId === "in_progress"
-        ? Math.floor(new Date().setHours(12, 0, 0, 0) / 1000)
-        : null;
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    const initialDueDate = columnId === "inbox" ? null : nowEpoch;
 
     try {
-      const created = await invoke<Task>("create_task", {
+      await invoke("create_task", {
         workspaceId,
-        title,
-        priority: "medium",
-        dueDate: todayNoonEpoch,
         projectId: projectIdFilter || null,
+        title,
+        description: null,
+        priority: "medium",
+        dueDate: initialDueDate,
+        nextAction: null,
       });
-
-      if (columnId !== "inbox" && columnId !== "todo") {
-        await invoke("set_task_status", { taskId: created.id, status: columnId });
-      }
 
       setNewTitleMap((prev) => ({ ...prev, [columnId]: "" }));
       setShowAddMap((prev) => ({ ...prev, [columnId]: false }));
+      playTaskPopSound();
       onTasksChanged();
       window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
     } catch (err) {
-      console.error("Failed to create task in Kanban column:", err);
+      console.error("Failed to create task in column:", err);
     }
+  };
+
+  const formatDueDate = (epochSeconds: number | null) => {
+    if (!epochSeconds) return null;
+    const date = new Date(epochSeconds * 1000);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const taskDate = new Date(date);
+    taskDate.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.round((taskDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return { formatted: "Today", isPast: false, isToday: true };
+    if (diffDays === 1) return { formatted: "Tomorrow", isPast: false, isToday: false };
+    if (diffDays === -1) return { formatted: "Yesterday", isPast: true, isToday: false };
+    if (diffDays < -1) return { formatted: `${Math.abs(diffDays)}d overdue`, isPast: true, isToday: false };
+
+    return {
+      formatted: date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      isPast: false,
+      isToday: false,
+    };
   };
 
   const getPriorityBadge = (priority: Task["priority"]) => {
@@ -470,74 +645,137 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       case "high":
         return { label: "High", color: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" };
       case "medium":
-        return { label: "Medium", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20" };
+        return { label: "Med", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20" };
+      case "low":
       default:
         return { label: "Low", color: "bg-muted text-muted-foreground border-border/60" };
     }
   };
 
-  const formatDueDate = (epochSecs: number | null) => {
-    if (!epochSecs) return null;
-    const d = new Date(epochSecs * 1000);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-
-    const isPast = target < today;
-    const isToday = target.getTime() === today.getTime();
-
-    const formatted = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    return { formatted, isPast, isToday };
-  };
-
-  const isDraggingActive = !!draggedTaskId;
+  const inProgressCount = getColumnTasks("in_progress").length;
+  const isFilterActive = searchQuery.trim() !== "" || selectedPriorityFilter !== "all" || (selectedProjectFilter !== "all" && !projectIdFilter);
 
   return (
-    <div
-      className="w-full h-full overflow-x-auto pb-6 select-none"
-      onDragOver={(e) => {
-        if (!editMode) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-      }}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-          setDragOverColumn(null);
-          setDragTarget(null);
-        }
-      }}
-      onDrop={handleBoardDrop}
-    >
-      {/* Edit Mode Active Banner */}
-      {editMode && (
-        <div className="flex items-center justify-between px-4 py-2.5 mb-4 rounded-2xl bg-primary/10 border border-primary/20 text-xs text-foreground animate-fade-in shadow-2xs min-w-[950px]">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-primary shrink-0" />
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-primary">Edit Mode Active:</span>
-              <span className="text-muted-foreground">
-                Drag cards anywhere. Reorder within the same column or insert into any stage slot.
-              </span>
-            </div>
+    <div className="space-y-4 w-full select-none animate-smooth-in">
+      {/* ─── KANBAN SEARCH & FILTER TOOLBAR ─── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-card border border-border rounded-2xl shadow-card">
+        {/* Left: Search input */}
+        <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md bg-muted/60 px-3 py-1.5 rounded-xl border border-border">
+          <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter cards by title or keyword…"
+            className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Right: Priority filter & Project filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Priority Pills */}
+          <div className="flex items-center gap-1 bg-muted/60 p-1 rounded-xl border border-border text-[11px]">
+            {(["all", "urgent", "high", "medium", "low"] as const).map((p) => {
+              const isActive = selectedPriorityFilter === p;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setSelectedPriorityFilter(p)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg font-medium capitalize transition-all cursor-pointer",
+                    isActive
+                      ? "bg-background shadow-xs text-foreground font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {p}
+                </button>
+              );
+            })}
           </div>
+
+          {/* Project Selector (if not already filtered) */}
+          {!projectIdFilter && projects.length > 0 && (
+            <select
+              value={selectedProjectFilter}
+              onChange={(e) => setSelectedProjectFilter(e.target.value)}
+              className="bg-muted/60 text-foreground border border-border text-xs rounded-xl px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
+            >
+              <option value="all">All Projects</option>
+              {projects.map((proj) => (
+                <option key={proj.id} value={proj.id}>
+                  {proj.name}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Clear Filters */}
+          {isFilterActive && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("");
+                setSelectedPriorityFilter("all");
+                setSelectedProjectFilter("all");
+              }}
+              className="px-2.5 py-1.5 rounded-xl text-xs text-muted-foreground hover:text-foreground border border-border hover:bg-muted/60 transition-colors cursor-pointer"
+              title="Reset all filters"
+            >
+              Clear
+            </button>
+          )}
+
+          {/* Drag Mode Toggle */}
           <button
             type="button"
-            onClick={() => toggleEditMode(false)}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity cursor-pointer shrink-0 shadow-2xs"
+            onClick={() => toggleEditMode(!editMode)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-2xs",
+              editMode
+                ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                : "bg-muted/50 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+            title={editMode ? "Turn off card drag mode" : "Turn on card drag mode"}
           >
-            <Check className="h-3.5 w-3.5" />
-            <span>Done Editing</span>
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span>Drag Mode</span>
+            <span
+              className={cn(
+                "text-[9px] font-mono px-1 py-0.5 rounded",
+                editMode ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
+              )}
+            >
+              {editMode ? "ON" : "OFF"}
+            </span>
           </button>
         </div>
-      )}
+      </div>
 
-      {/* 4 Column Kanban Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4.5 min-w-[950px] h-full items-start">
+      {/* ─── 4-COLUMN KANBAN GRID ─── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-start">
         {COLUMNS.map((col, colIdx) => {
           const colTasks = getColumnTasks(col.id);
           const Icon = col.icon;
           const isOver = dragOverColumn === col.id;
-          const isSourceColumn = isDraggingActive && colTasks.some((t) => t.id === draggedTaskId);
+          const isDraggingActive = Boolean(draggedTaskId);
+          const draggedTask = draggedTaskId ? localTasks.find((t) => t.id === draggedTaskId) : null;
+          const isSourceColumn = draggedTask
+            ? (col.id === "inbox" && draggedTask.status === "inbox") ||
+              (col.id === "todo" && (draggedTask.status === "todo" || draggedTask.status === "planned" || draggedTask.status === "waiting")) ||
+              (col.id === "in_progress" && draggedTask.status === "in_progress") ||
+              (col.id === "completed" && draggedTask.status === "completed")
+            : false;
 
           return (
             <div
@@ -546,7 +784,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
               onDragEnter={(e) => {
                 if (!editMode) return;
                 e.preventDefault();
-                if (dragOverColumn !== col.id) setDragOverColumn(col.id);
+                setDragOverColumn(col.id);
               }}
               onDragOver={(e) => {
                 if (!editMode) return;
@@ -557,7 +795,6 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
               onDragLeave={(e) => {
                 e.preventDefault();
                 if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  if (dragOverColumn === col.id) setDragOverColumn(null);
                   if (dragOverColumn === col.id) {
                     setDragOverColumn(null);
                     setDragTarget(null);
@@ -596,9 +833,19 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 </span>
               </div>
 
+              {/* In Progress WIP Focus Banner */}
+              {col.id === "in_progress" && inProgressCount > 3 && (
+                <div className="mb-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[11px] flex items-center gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Focus Cue: {inProgressCount} tasks underway. Prioritize finishing before starting more.
+                  </span>
+                </div>
+              )}
+
               {/* Cards Container */}
               <div
-                className="flex-1 space-y-2.5 overflow-y-auto pr-0.5 max-h-[calc(100vh-270px)] relative z-10"
+                className="flex-1 space-y-2.5 overflow-y-auto pr-0.5 max-h-[calc(100vh-290px)] relative z-10"
                 onDragOver={(e) => handleColumnContainerDragOver(e, col.id, colTasks.length)}
                 onDrop={(e) => void handleDrop(col.id, dragTarget?.insertIndex, e)}
               >
@@ -609,7 +856,6 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                       e.preventDefault();
                       e.dataTransfer.dropEffect = "move";
                       if (dragOverColumn !== col.id) setDragOverColumn(col.id);
-                      setDragOverColumn(col.id);
                       setDragTarget({ columnId: col.id, insertIndex: 0 });
                     }}
                     onDrop={(e) => void handleDrop(col.id, 0, e)}
@@ -636,9 +882,6 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                       <>
                         <p className="font-medium text-foreground/70">No tasks in this column</p>
                         <p className="text-[10px] mt-0.5">Drag a card here or add one below</p>
-                        <p className="text-[10px] mt-0.5">
-                          {editMode ? "Drag a card here to position as #1" : "Turn on Edit Mode to drag cards or add one below"}
-                        </p>
                       </>
                     )}
                   </div>
@@ -655,6 +898,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                         dragTarget?.columnId === col.id &&
                         dragTarget?.insertIndex === taskIdx;
 
+                      // Subtasks info
+                      const subtasks = subtasksMap[task.id] || [];
+                      const completedSubtasksCount = subtasks.filter((s) => s.is_completed === 1).length;
+                      const isSubtasksExpanded = expandedSubtasksTaskIds.has(task.id);
+                      const subtaskRatio = subtasks.length > 0 ? completedSubtasksCount / subtasks.length : 0;
+
+                      // Recurrence info
+                      const rec = parseRecurrenceFromDescription(task.description);
+                      const isRecurring = Boolean(rec.data);
+
                       return (
                         <React.Fragment key={task.id}>
                           {/* Visual Drop Slot Indicator Above Card */}
@@ -667,11 +920,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                             onDragEnd={handleDragEnd}
                             onDragOver={(e) => handleCardDragOver(e, col.id, taskIdx)}
                             onDrop={(e) => void handleDrop(col.id, dragTarget?.insertIndex, e)}
+                            onClick={() => setSelectedTaskForDrawer(task)}
                             className={cn(
-                              "group p-3.5 rounded-2xl border border-border/80 bg-background hover:bg-card shadow-card hover:shadow-card-hover transition-all duration-150 space-y-2.5 relative",
-                              editMode
-                                ? "cursor-grab active:cursor-grabbing hover:border-primary/50 hover:ring-2 hover:ring-primary/20"
-                                : "cursor-default hover:border-border",
+                              "group p-3.5 rounded-2xl border border-border/80 bg-background hover:bg-card shadow-card hover:shadow-card-hover transition-all duration-150 space-y-2.5 relative cursor-pointer",
+                              editMode && "hover:border-primary/50 hover:ring-2 hover:ring-primary/20",
                               isDragging && "opacity-35 border-dashed border-primary bg-primary/5 shadow-none",
                               isMoveMenuOpen && "ring-2 ring-primary/40 z-30"
                             )}
@@ -680,19 +932,23 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex items-start gap-1.5 min-w-0 flex-1">
                                 <span
-                                  className="inline-flex"
-                                  title={editMode ? "Drag to move card anywhere" : "Turn on Edit Mode to drag"}
+                                  className="inline-flex cursor-grab active:cursor-grabbing"
+                                  onClick={(e) => e.stopPropagation()}
+                                  title={editMode ? "Drag to reorder card" : "Turn on Edit Mode to drag anywhere"}
                                 >
                                   <GripVertical
                                     className={cn(
                                       "h-3.5 w-3.5 shrink-0 mt-0.5 transition-colors",
                                       editMode
-                                        ? "text-primary/70 group-hover:text-primary cursor-grab"
-                                        : "text-muted-foreground/30 cursor-default"
+                                        ? "text-primary/70 group-hover:text-primary"
+                                        : "text-muted-foreground/30"
                                     )}
                                   />
                                 </span>
-                                <span className="text-xs font-semibold text-foreground leading-snug break-words flex-1">
+                                <span className={cn(
+                                  "text-xs font-semibold text-foreground leading-snug break-words flex-1",
+                                  task.status === "completed" && "line-through text-muted-foreground"
+                                )}>
                                   {task.title}
                                 </span>
                               </div>
@@ -700,9 +956,23 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                               {/* Quick Action Move Controls */}
                               <div
                                 className="flex items-center gap-1 opacity-90 sm:opacity-0 group-hover:opacity-100 transition-opacity shrink-0 relative z-20"
+                                onClick={(e) => e.stopPropagation()}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onMouseDown={(e) => e.stopPropagation()}
                               >
+                                {/* Edit Details Button */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedTaskForDrawer(task);
+                                  }}
+                                  className="p-1.5 rounded-lg bg-muted hover:bg-primary hover:text-primary-foreground text-muted-foreground transition-all cursor-pointer shadow-2xs active:scale-95"
+                                  title="Edit task details"
+                                >
+                                  <Edit3 className="h-3 w-3" />
+                                </button>
+
                                 {/* Fast Step Left */}
                                 {colIdx > 0 && (
                                   <button
@@ -740,7 +1010,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                     <ArrowRightLeft className="h-3 w-3" />
                                   </button>
 
-                                  {/* Dropdown Menu to jump directly to any column */}
+                                  {/* Dropdown Menu */}
                                   {isMoveMenuOpen && (
                                     <div
                                       className="absolute right-0 top-full mt-1.5 w-44 bg-card border border-border rounded-2xl shadow-2xl p-1.5 z-50 animate-dialog-in text-left space-y-1"
@@ -802,11 +1072,157 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                             </div>
 
                             {/* Description Preview */}
-                            {task.description && (
+                            {rec.cleanDescription && (
                               <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed pl-5">
-                                {task.description}
+                                {rec.cleanDescription}
                               </p>
                             )}
+
+                            {/* ─── INTERACTIVE SUBTASKS EXPANSION ON CARD ─── */}
+                            <div className="pl-5 pt-0.5" onClick={(e) => e.stopPropagation()}>
+                              {subtasks.length > 0 ? (
+                                <div className="space-y-1.5">
+                                  {/* Subtask Progress Trigger */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => toggleSubtasksExpansion(task.id, e)}
+                                    className="flex items-center gap-2 text-[10px] font-medium text-muted-foreground hover:text-foreground py-1 px-2 rounded-lg bg-muted/50 hover:bg-muted transition-colors cursor-pointer w-full"
+                                  >
+                                    {isSubtasksExpanded ? (
+                                      <ChevronDown className="h-3 w-3 shrink-0" />
+                                    ) : (
+                                      <ChevronRight className="h-3 w-3 shrink-0" />
+                                    )}
+                                    <CheckSquare className="h-3 w-3 text-primary shrink-0" />
+                                    <span>
+                                      {completedSubtasksCount}/{subtasks.length} steps
+                                    </span>
+                                    {/* Mini Progress Bar */}
+                                    <div className="flex-1 h-1.5 bg-muted-foreground/20 rounded-full overflow-hidden ml-1">
+                                      <div
+                                        className={cn(
+                                          "h-full rounded-full transition-all duration-300",
+                                          subtaskRatio === 1 ? "bg-emerald-500" : "bg-primary"
+                                        )}
+                                        style={{ width: `${Math.round(subtaskRatio * 100)}%` }}
+                                      />
+                                    </div>
+                                    <span className="font-mono text-[9px]">
+                                      {Math.round(subtaskRatio * 100)}%
+                                    </span>
+                                  </button>
+
+                                  {/* Expanded Subtasks Mini Checklist */}
+                                  {isSubtasksExpanded && (
+                                    <div className="space-y-1 pt-1 pb-1 animate-fade-in">
+                                      {subtasks.map((st) => {
+                                        const isStDone = st.is_completed === 1;
+                                        return (
+                                          <div
+                                            key={st.id}
+                                            onClick={(e) => void handleToggleSubtask(task.id, st.id, e)}
+                                            className="flex items-center gap-2 py-1 px-2 rounded-lg hover:bg-muted/60 transition-colors cursor-pointer group/st text-[11px]"
+                                          >
+                                            {isStDone ? (
+                                              <CheckSquare className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                                            ) : (
+                                              <Square className="h-3.5 w-3.5 text-muted-foreground/60 group-hover/st:text-primary shrink-0" />
+                                            )}
+                                            <span
+                                              className={cn(
+                                                "leading-tight break-words flex-1",
+                                                isStDone
+                                                  ? "line-through text-muted-foreground"
+                                                  : "text-foreground"
+                                              )}
+                                            >
+                                              {st.title}
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
+
+                                      {/* Inline "+ Add Step" form */}
+                                      <form
+                                        onSubmit={(e) => void handleAddSubtaskInline(task.id, e)}
+                                        className="pt-1 flex items-center gap-1.5"
+                                      >
+                                        <input
+                                          type="text"
+                                          placeholder="+ Add step…"
+                                          value={newSubtaskTitleMap[task.id] || ""}
+                                          onChange={(e) =>
+                                            setNewSubtaskTitleMap((prev) => ({
+                                              ...prev,
+                                              [task.id]: e.target.value,
+                                            }))
+                                          }
+                                          className="flex-1 bg-background border border-border/80 rounded-lg px-2 py-1 text-[11px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                                        />
+                                        {newSubtaskTitleMap[task.id]?.trim() && (
+                                          <button
+                                            type="submit"
+                                            className="px-2 py-1 text-[10px] font-semibold bg-primary text-primary-foreground rounded-lg hover:opacity-90 cursor-pointer shadow-2xs"
+                                          >
+                                            Add
+                                          </button>
+                                        )}
+                                      </form>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                /* Quick Add Step Link if task has no subtasks yet */
+                                <div className="pt-0.5">
+                                  {isSubtasksExpanded ? (
+                                    <form
+                                      onSubmit={(e) => void handleAddSubtaskInline(task.id, e)}
+                                      className="space-y-1.5 animate-fade-in"
+                                    >
+                                      <input
+                                        type="text"
+                                        autoFocus
+                                        placeholder="Add first checklist step…"
+                                        value={newSubtaskTitleMap[task.id] || ""}
+                                        onChange={(e) =>
+                                          setNewSubtaskTitleMap((prev) => ({
+                                            ...prev,
+                                            [task.id]: e.target.value,
+                                          }))
+                                        }
+                                        className="w-full bg-background border border-border/80 rounded-lg px-2 py-1 text-[11px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                                      />
+                                      <div className="flex items-center justify-end gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => toggleSubtasksExpansion(task.id, e)}
+                                          className="text-[10px] text-muted-foreground hover:text-foreground px-2 py-0.5 cursor-pointer"
+                                        >
+                                          Cancel
+                                        </button>
+                                        <button
+                                          type="submit"
+                                          disabled={!newSubtaskTitleMap[task.id]?.trim()}
+                                          className="text-[10px] font-semibold bg-primary text-primary-foreground px-2 py-0.5 rounded-md hover:opacity-90 disabled:opacity-40 cursor-pointer"
+                                        >
+                                          Add Step
+                                        </button>
+                                      </div>
+                                    </form>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => toggleSubtasksExpansion(task.id, e)}
+                                      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors cursor-pointer py-0.5"
+                                      title="Add checklist subtasks"
+                                    >
+                                      <Plus className="h-2.5 w-2.5" />
+                                      <span>Add steps</span>
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
 
                             {/* Metadata Pills Footer */}
                             <div className="flex items-center gap-1.5 flex-wrap pt-1 text-[10px] pl-5">
@@ -832,9 +1248,32 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                                 </span>
                               )}
 
+                              {/* Recurrence & Streak Badges */}
+                              {isRecurring && rec.data && (
+                                <>
+                                  <span
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 font-medium"
+                                    title={`Repeats ${formatRecurrenceLabel(rec.data.frequency)}`}
+                                  >
+                                    <Repeat className="h-2.5 w-2.5" />
+                                    <span>{rec.data.frequency}</span>
+                                  </span>
+
+                                  {rec.data.streak > 0 && (
+                                    <span
+                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-mono font-bold"
+                                      title={`${rec.data.streak} completion streak`}
+                                    >
+                                      <Flame className="h-2.5 w-2.5 text-amber-500 fill-amber-500" />
+                                      <span>{rec.data.streak}x</span>
+                                    </span>
+                                  )}
+                                </>
+                              )}
+
                               {/* Project Tag */}
                               {taskProject && (
-                                <span className="px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/60 font-medium truncate max-w-[120px]">
+                                <span className="px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/60 font-medium truncate max-w-[110px]">
                                   {taskProject.name}
                                 </span>
                               )}
@@ -904,6 +1343,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                       autoFocus
                       value={newTitleMap[col.id] || ""}
                       onChange={(e) => setNewTitleMap((prev) => ({ ...prev, [col.id]: e.target.value }))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setShowAddMap((prev) => ({ ...prev, [col.id]: false }));
+                        }
+                      }}
                       placeholder={`Add task to ${col.label}…`}
                       className="w-full bg-background border border-border rounded-xl px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40 shadow-2xs"
                     />
@@ -931,7 +1375,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer border border-transparent hover:border-border/60"
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    <span>Add to {col.label}</span>
+                    <span>Add to {col.label.split("/")[0].trim()}</span>
                   </button>
                 )}
               </div>
@@ -939,6 +1383,286 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           );
         })}
       </div>
+
+      {/* ─── SLIDE-OVER TASK DETAIL / EDIT DRAWER ─── */}
+      {selectedTaskForDrawer && (
+        <div
+          className="fixed inset-0 bg-background/70 backdrop-blur-xs z-50 flex justify-end animate-fade-in"
+          onClick={() => setSelectedTaskForDrawer(null)}
+        >
+          <div
+            className="w-full max-w-lg bg-card border-l border-border h-full flex flex-col shadow-2xl p-6 overflow-y-auto animate-smooth-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drawer Header */}
+            <div className="flex items-center justify-between border-b border-border/60 pb-4 mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-muted-foreground uppercase tracking-wider">
+                  Task Details
+                </span>
+                <span className={cn(
+                  "text-[10px] font-mono px-2 py-0.5 rounded-md border font-semibold",
+                  getPriorityBadge(drawerPriority).color
+                )}>
+                  {getPriorityBadge(drawerPriority).label}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedTaskForDrawer(null)}
+                className="p-1.5 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                title="Close drawer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Status Jumper Row */}
+            <div className="space-y-1.5 mb-4">
+              <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                Status / Column
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {COLUMNS.map((targetCol) => {
+                  const isCurrent = (
+                    (targetCol.id === "inbox" && selectedTaskForDrawer.status === "inbox") ||
+                    (targetCol.id === "todo" && (selectedTaskForDrawer.status === "todo" || selectedTaskForDrawer.status === "planned" || selectedTaskForDrawer.status === "waiting")) ||
+                    (targetCol.id === "in_progress" && selectedTaskForDrawer.status === "in_progress") ||
+                    (targetCol.id === "completed" && selectedTaskForDrawer.status === "completed")
+                  );
+                  return (
+                    <button
+                      key={targetCol.id}
+                      type="button"
+                      onClick={() => void handleStatusChange(selectedTaskForDrawer.id, targetCol.id)}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer",
+                        isCurrent
+                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                          : "bg-muted/50 border-border/80 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      )}
+                    >
+                      <span>{targetCol.label.split("/")[0].trim()}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Editable Fields */}
+            <div className="space-y-4 flex-1">
+              {/* Title */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={drawerTitle}
+                  onChange={(e) => setDrawerTitle(e.target.value)}
+                  className="w-full bg-background border border-border rounded-xl px-3 py-2 text-sm font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Description / Notes
+                </label>
+                <textarea
+                  value={drawerDescription}
+                  onChange={(e) => setDrawerDescription(e.target.value)}
+                  rows={3}
+                  placeholder="Add notes, context, or guidelines…"
+                  className="w-full bg-background border border-border rounded-xl p-3 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 resize-none"
+                />
+              </div>
+
+              {/* Priority & Due Date */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Priority
+                  </label>
+                  <select
+                    value={drawerPriority}
+                    onChange={(e) => setDrawerPriority(e.target.value as Task["priority"])}
+                    className="w-full bg-background text-foreground border border-border text-xs rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Due Date
+                  </label>
+                  <input
+                    type="date"
+                    value={drawerDueDate}
+                    onChange={(e) => setDrawerDueDate(e.target.value)}
+                    className="w-full bg-background text-foreground border border-border text-xs rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                  />
+                </div>
+              </div>
+
+              {/* Project & Recurrence */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Project
+                  </label>
+                  <select
+                    value={drawerProjectId || ""}
+                    onChange={(e) => setDrawerProjectId(e.target.value || null)}
+                    className="w-full bg-background text-foreground border border-border text-xs rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
+                  >
+                    <option value="">No Project</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Recurrence
+                  </label>
+                  <select
+                    value={drawerRecurrence}
+                    onChange={(e) => setDrawerRecurrence(e.target.value as RecurrenceFrequency)}
+                    className="w-full bg-background text-foreground border border-border text-xs rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
+                  >
+                    <option value="none">Does not repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekdays">Weekdays (Mon-Fri)</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="biweekly">Every 2 Weeks</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Subtasks Management in Drawer */}
+              <div className="space-y-2 pt-2 border-t border-border/60">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckSquare className="h-3.5 w-3.5 text-primary" />
+                    <span>Checklist Steps ({subtasksMap[selectedTaskForDrawer.id]?.length || 0})</span>
+                  </label>
+                </div>
+
+                {/* Subtask items */}
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {(subtasksMap[selectedTaskForDrawer.id] || []).map((st) => {
+                    const isStDone = st.is_completed === 1;
+                    return (
+                      <div
+                        key={st.id}
+                        className="flex items-center justify-between gap-2 p-2 rounded-xl bg-muted/40 hover:bg-muted/70 transition-colors group/item"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleSubtask(selectedTaskForDrawer.id, st.id)}
+                          className="flex items-center gap-2 text-xs flex-1 text-left cursor-pointer"
+                        >
+                          {isStDone ? (
+                            <CheckSquare className="h-4 w-4 text-emerald-500 shrink-0" />
+                          ) : (
+                            <Square className="h-4 w-4 text-muted-foreground shrink-0" />
+                          )}
+                          <span className={cn("break-words flex-1", isStDone && "line-through text-muted-foreground")}>
+                            {st.title}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteSubtaskInDrawer(st.id, selectedTaskForDrawer.id)}
+                          className="p-1 rounded-lg text-muted-foreground/40 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                          title="Delete step"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Inline add subtask form */}
+                <form
+                  onSubmit={(e) => void handleAddSubtaskInDrawer(selectedTaskForDrawer.id, e)}
+                  className="flex items-center gap-2 pt-1"
+                >
+                  <input
+                    type="text"
+                    value={drawerNewSubtask}
+                    onChange={(e) => setDrawerNewSubtask(e.target.value)}
+                    placeholder="Add a new checklist step…"
+                    className="flex-1 bg-background border border-border rounded-xl px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!drawerNewSubtask.trim()}
+                    className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 disabled:opacity-40 cursor-pointer shadow-2xs"
+                  >
+                    Add
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            {/* Drawer Footer Actions */}
+            <div className="pt-4 border-t border-border/60 mt-4 flex items-center justify-between gap-2">
+              {/* Archive / Delete */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await invoke("set_task_status", {
+                      taskId: selectedTaskForDrawer.id,
+                      status: "archived",
+                    });
+                    setSelectedTaskForDrawer(null);
+                    playTaskPopSound();
+                    onTasksChanged();
+                    window.dispatchEvent(new CustomEvent("laya:tasks-changed"));
+                  }}
+                  className="px-3 py-2 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground border border-border hover:bg-muted/50 transition-colors cursor-pointer flex items-center gap-1.5"
+                  title="Archive task into history"
+                >
+                  <Archive className="h-3.5 w-3.5" />
+                  <span>Archive</span>
+                </button>
+              </div>
+
+              {/* Save & Cancel */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTaskForDrawer(null)}
+                  className="px-3.5 py-2 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSaveDrawerEdits()}
+                  disabled={isSavingDrawer}
+                  className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  <span>{isSavingDrawer ? "Saving…" : "Save Changes"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
