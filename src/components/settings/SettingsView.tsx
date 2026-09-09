@@ -39,10 +39,15 @@ import {
   ChevronDown,
   ChevronUp,
   HelpCircle,
+  Target,
+  Pin,
+  Maximize2,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { getAiConfig, saveAiConfig } from "../../lib/ai/storage";
 import { testAiConnection } from "../../lib/ai/engine";
+import { useFocusTimer } from "../../lib/focusContext";
+import { FOCUS_ALARM_PROFILES, playFocusAlarmSound } from "../../lib/sound";
 import {
   type DatabaseStats,
   type BackupFileInfo,
@@ -123,7 +128,7 @@ interface SystemStatus {
   db_connected: boolean;
 }
 
-export type SectionId = "appearance" | "workflow" | "shortcuts" | "sound" | "ai" | "workspace" | "about";
+export type SectionId = "appearance" | "workflow" | "focus" | "shortcuts" | "sound" | "ai" | "workspace" | "about";
 
 interface NavSectionItem {
   id: SectionId;
@@ -135,6 +140,7 @@ interface NavSectionItem {
 const NAV_SECTIONS: NavSectionItem[] = [
   { id: "appearance", label: "Appearance", icon: Palette, description: "Theme palettes & accents" },
   { id: "workflow", label: "Task Workflow", icon: CheckSquare, description: "Completed task order & behavior" },
+  { id: "focus", label: "Focus & Window", icon: Target, description: "Float on top & real fullscreen" },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard, description: "Customizable hotkeys & keybinds" },
   { id: "sound", label: "Sound Effects", icon: Volume2, description: "Pop styles & tidy-up SFX" },
   { id: "ai", label: "Sammi AI", icon: Bot, description: "Provider, models & API keys" },
@@ -164,6 +170,17 @@ export const SettingsView: React.FC = () => {
     const saved = localStorage.getItem("laya-completed-position");
     return saved === "remain" ? "remain" : "bottom";
   });
+
+  const {
+    isAlwaysOnTop,
+    toggleAlwaysOnTop,
+    autoAlwaysOnTopFocus,
+    setAutoAlwaysOnTopFocus,
+    autoFullscreenZen,
+    setAutoFullscreenZen,
+    alarmSoundId,
+    handleAlarmChange,
+  } = useFocusTimer();
 
   const [aiConfig, setAiConfig] = useState<AiProviderConfig>(() => getAiConfig());
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -1077,7 +1094,187 @@ export const SettingsView: React.FC = () => {
           </div>
         </section>
 
-        {/* ─── 3. KEYBOARD SHORTCUTS SECTION ──────────────────────────────── */}
+        {/* ─── 3. FOCUS & WINDOW SETTINGS SECTION ──────────────────────────── */}
+        <section id="section-focus" className="space-y-6 scroll-mt-2">
+          <div className="bg-card border border-border rounded-2xl p-6 shadow-card space-y-6">
+            <div className="flex items-center justify-between border-b border-border/60 pb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Target className="h-4 w-4 text-primary" />
+                  Focus Window & Desktop Immersion
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Configure window layering, native OS fullscreen takeover, and focus sound chimes.
+                </p>
+              </div>
+            </div>
+
+            {/* Desktop Window Controls */}
+            <div className="space-y-4">
+              <span className="text-xs font-semibold text-foreground block">
+                Window Behavior & Stacking
+              </span>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Float on Top during Focus */}
+                <div className="p-4 rounded-xl border border-border bg-background flex items-start justify-between gap-4 shadow-2xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <Pin className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-xs font-semibold text-foreground">
+                        Float on Top during Focus
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Automatically keeps the Laya window pinned above all other open apps (browsers, IDEs) while your focus timer is running.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAutoAlwaysOnTopFocus(!autoAlwaysOnTopFocus)}
+                    className={cn(
+                      "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                      autoAlwaysOnTopFocus ? "bg-primary" : "bg-muted"
+                    )}
+                    role="switch"
+                    aria-checked={autoAlwaysOnTopFocus}
+                    title="Toggle float on top during focus"
+                  >
+                    <span
+                      className={cn(
+                        "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-xs ring-0 transition duration-200 ease-in-out",
+                        autoAlwaysOnTopFocus ? "translate-x-5" : "translate-x-0"
+                      )}
+                    />
+                  </button>
+                </div>
+
+                {/* Real Native OS Fullscreen Zen Mode */}
+                <div className="p-4 rounded-xl border border-border bg-background flex items-start justify-between gap-4 shadow-2xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <Maximize2 className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-xs font-semibold text-foreground">
+                        Real Fullscreen Zen Mode
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Automatically engages true OS full-screen takeover (hiding the taskbar and window frame) upon launching Zen Mode. Esc restores your window.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setAutoFullscreenZen(!autoFullscreenZen)}
+                    className={cn(
+                      "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                      autoFullscreenZen ? "bg-primary" : "bg-muted"
+                    )}
+                    role="switch"
+                    aria-checked={autoFullscreenZen}
+                    title="Toggle real fullscreen in Zen mode"
+                  >
+                    <span
+                      className={cn(
+                        "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-xs ring-0 transition duration-200 ease-in-out",
+                        autoFullscreenZen ? "translate-x-5" : "translate-x-0"
+                      )}
+                    />
+                  </button>
+                </div>
+
+                {/* Pin Window Always on Top (Global) */}
+                <div className="p-4 rounded-xl border border-border bg-background flex items-start justify-between gap-4 shadow-2xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <Pin className="h-3.5 w-3.5 text-primary" />
+                      <span className="text-xs font-semibold text-foreground">
+                        Pin Window Always on Top (Global)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Pins the Laya window permanently above other desktop windows across all tabs and workflows.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={toggleAlwaysOnTop}
+                    className={cn(
+                      "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                      isAlwaysOnTop ? "bg-primary" : "bg-muted"
+                    )}
+                    role="switch"
+                    aria-checked={isAlwaysOnTop}
+                    title="Toggle global pin on top"
+                  >
+                    <span
+                      className={cn(
+                        "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-background shadow-xs ring-0 transition duration-200 ease-in-out",
+                        isAlwaysOnTop ? "translate-x-5" : "translate-x-0"
+                      )}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Focus Completion Sound Profile */}
+            <div className="space-y-3 pt-2 border-t border-border/60">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-foreground">Default Focus Alarm Sound</span>
+                <span className="text-[11px] text-muted-foreground">Click ▶ to preview chime</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {FOCUS_ALARM_PROFILES.map((profile) => {
+                  const isSelected = alarmSoundId === profile.id;
+                  return (
+                    <div
+                      key={profile.id}
+                      onClick={() => handleAlarmChange(profile.id)}
+                      className={cn(
+                        "p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 shadow-2xs group",
+                        isSelected
+                          ? "bg-primary/10 border-primary/40 ring-1 ring-primary/20"
+                          : "bg-background border-border hover:bg-muted/40 hover:border-border/80"
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold text-foreground truncate">
+                            {profile.name}
+                          </span>
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/60 uppercase">
+                            {profile.tag}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                          {profile.description}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          playFocusAlarmSound(profile.id);
+                        }}
+                        className="p-1.5 rounded-lg bg-card border border-border text-primary hover:bg-muted transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        title={`Preview ${profile.name}`}
+                      >
+                        <Play className="h-3 w-3 fill-current" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── 4. KEYBOARD SHORTCUTS SECTION ──────────────────────────────── */}
         <section id="section-shortcuts" className="space-y-6 scroll-mt-2">
           <div className="bg-card border border-border rounded-2xl p-6 shadow-card space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-4">

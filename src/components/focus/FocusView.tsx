@@ -23,6 +23,9 @@ import {
   ListTodo,
   SlidersHorizontal,
   Maximize2,
+  Maximize,
+  Minimize2,
+  Pin,
   History,
   Trash2,
   Check,
@@ -65,6 +68,10 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
     selectedTaskTitle,
     alarmSoundId,
     setIsZenMode,
+    isAlwaysOnTop,
+    toggleAlwaysOnTop,
+    isFullscreen,
+    toggleFullscreen,
     ambientType,
     ambientVol,
     showMixerStudio,
@@ -230,6 +237,38 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
           >
             <Maximize2 className="h-3.5 w-3.5" />
             <span>Zen Mode</span>
+          </button>
+
+          {/* Float on Top (Pin Window) Button */}
+          <button
+            type="button"
+            onClick={toggleAlwaysOnTop}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border",
+              isAlwaysOnTop
+                ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+                : "text-muted-foreground hover:text-foreground border-border/80 hover:bg-muted"
+            )}
+            title={isAlwaysOnTop ? "Float on Top active: Window stays above other applications" : "Float on Top: Pin Laya window above all other desktop apps"}
+          >
+            <Pin className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{isAlwaysOnTop ? "Pinned on Top" : "Float on Top"}</span>
+          </button>
+
+          {/* Real Native Fullscreen Button */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer border",
+              isFullscreen
+                ? "bg-primary text-primary-foreground border-primary shadow-2xs"
+                : "text-muted-foreground hover:text-foreground border-border/80 hover:bg-muted"
+            )}
+            title={isFullscreen ? "Exit Real Fullscreen" : "Enter Real OS Fullscreen (exclusive monitor takeover)"}
+          >
+            {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{isFullscreen ? "Exit Fullscreen" : "Fullscreen"}</span>
           </button>
         </div>
 

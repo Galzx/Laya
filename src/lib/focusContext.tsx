@@ -9,6 +9,7 @@ import {
   type SoundscapeTrackId,
   type AmbientSoundType,
 } from "./sound";
+import { setAlwaysOnTop, setNativeFullscreen } from "./desktopWindow";
 
 export type TimerMode = "pomodoro" | "deepFocus" | "shortBreak" | "longBreak" | "custom";
 
@@ -51,6 +52,14 @@ interface FocusContextType {
   isZenMode: boolean;
   setIsZenMode: (zen: boolean) => void;
   toggleZenMode: () => void;
+  isAlwaysOnTop: boolean;
+  toggleAlwaysOnTop: () => void;
+  isFullscreen: boolean;
+  toggleFullscreen: () => void;
+  autoFullscreenZen: boolean;
+  setAutoFullscreenZen: (val: boolean) => void;
+  autoAlwaysOnTopFocus: boolean;
+  setAutoAlwaysOnTopFocus: (val: boolean) => void;
   ambientType: AmbientSoundType;
   ambientVol: number;
   showMixerStudio: boolean;
@@ -96,6 +105,23 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [isZenMode, setIsZenMode] = useState(false);
+  const [isAlwaysOnTopState, setIsAlwaysOnTopState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("laya-focus-always-on-top") === "true";
+  });
+  const [isFullscreenState, setIsFullscreenState] = useState<boolean>(false);
+
+  // Settings: Preferences
+  const [autoFullscreenZen, setAutoFullscreenZenState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const val = localStorage.getItem("laya-focus-auto-fullscreen-zen");
+    return val !== null ? val === "true" : true;
+  });
+
+  const [autoAlwaysOnTopFocus, setAutoAlwaysOnTopFocusState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("laya-focus-auto-aot") === "true";
+  });
 
   // Selected Task
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -137,6 +163,24 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   });
 
   const timerRef = useRef<number | null>(null);
+
+  // Synchronize initial always-on-top state
+  useEffect(() => {
+    if (isAlwaysOnTopState) {
+      void setAlwaysOnTop(true);
+    }
+  }, [isAlwaysOnTopState]);
+
+  // Handle auto always-on-top when timer runs
+  useEffect(() => {
+    if (autoAlwaysOnTopFocus) {
+      if (isRunning) {
+        void setAlwaysOnTop(true);
+      } else if (!isAlwaysOnTopState) {
+        void setAlwaysOnTop(false);
+      }
+    }
+  }, [isRunning, autoAlwaysOnTopFocus, isAlwaysOnTopState]);
 
   // Initialize and verify today's date
   useEffect(() => {
@@ -401,9 +445,65 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setSessionLogs([]);
   }, []);
 
+  // Zen Mode with optional Native OS Fullscreen
   const toggleZenMode = useCallback(() => {
     playTaskPopSound();
-    setIsZenMode((prev) => !prev);
+    setIsZenMode((prev) => {
+      const next = !prev;
+      if (next && autoFullscreenZen) {
+        void setNativeFullscreen(true);
+        setIsFullscreenState(true);
+      } else if (!next) {
+        void setNativeFullscreen(false);
+        setIsFullscreenState(false);
+      }
+      return next;
+    });
+  }, [autoFullscreenZen]);
+
+  const handleSetIsZenMode = useCallback(
+    (zen: boolean) => {
+      setIsZenMode(zen);
+      if (zen && autoFullscreenZen) {
+        void setNativeFullscreen(true);
+        setIsFullscreenState(true);
+      } else if (!zen) {
+        void setNativeFullscreen(false);
+        setIsFullscreenState(false);
+      }
+    },
+    [autoFullscreenZen]
+  );
+
+  // Always on top toggle
+  const toggleAlwaysOnTop = useCallback(() => {
+    playTaskPopSound();
+    setIsAlwaysOnTopState((prev) => {
+      const next = !prev;
+      localStorage.setItem("laya-focus-always-on-top", String(next));
+      void setAlwaysOnTop(next);
+      return next;
+    });
+  }, []);
+
+  // Fullscreen toggle
+  const toggleFullscreen = useCallback(() => {
+    playTaskPopSound();
+    setIsFullscreenState((prev) => {
+      const next = !prev;
+      void setNativeFullscreen(next);
+      return next;
+    });
+  }, []);
+
+  const setAutoFullscreenZen = useCallback((val: boolean) => {
+    setAutoFullscreenZenState(val);
+    localStorage.setItem("laya-focus-auto-fullscreen-zen", String(val));
+  }, []);
+
+  const setAutoAlwaysOnTopFocus = useCallback((val: boolean) => {
+    setAutoAlwaysOnTopFocusState(val);
+    localStorage.setItem("laya-focus-auto-aot", String(val));
   }, []);
 
   const formatTime = useCallback((seconds: number) => {
@@ -432,8 +532,16 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         selectedTaskTitle,
         alarmSoundId,
         isZenMode,
-        setIsZenMode,
+        setIsZenMode: handleSetIsZenMode,
         toggleZenMode,
+        isAlwaysOnTop: isAlwaysOnTopState,
+        toggleAlwaysOnTop,
+        isFullscreen: isFullscreenState,
+        toggleFullscreen,
+        autoFullscreenZen,
+        setAutoFullscreenZen,
+        autoAlwaysOnTopFocus,
+        setAutoAlwaysOnTopFocus,
         ambientType,
         ambientVol,
         showMixerStudio,

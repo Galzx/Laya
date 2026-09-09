@@ -8,6 +8,7 @@ import {
   Volume2,
   Target,
   Flame,
+  Pin,
 } from "lucide-react";
 import { useFocusTimer } from "../../lib/focusContext";
 import { cn } from "../../lib/utils";
@@ -16,6 +17,8 @@ export const ZenModeOverlay: React.FC = () => {
   const {
     isZenMode,
     setIsZenMode,
+    isAlwaysOnTop,
+    toggleAlwaysOnTop,
     mode,
     timeLeft,
     isRunning,
@@ -67,15 +70,32 @@ export const ZenModeOverlay: React.FC = () => {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIsZenMode(false)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card/80 hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-2xs"
-          title="Exit Zen Mode (Esc)"
-        >
-          <Minimize2 className="h-3.5 w-3.5" />
-          <span>Exit Zen (Esc)</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleAlwaysOnTop}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs",
+              isAlwaysOnTop
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-card/80 text-muted-foreground border-border hover:text-foreground hover:bg-muted"
+            )}
+            title={isAlwaysOnTop ? "Float on Top active: Window stays above other applications" : "Pin window always on top"}
+          >
+            <Pin className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{isAlwaysOnTop ? "Pinned on Top" : "Float on Top"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsZenMode(false)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card/80 hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-foreground transition-all cursor-pointer shadow-2xs"
+            title="Exit Zen Mode (Esc)"
+          >
+            <Minimize2 className="h-3.5 w-3.5" />
+            <span>Exit Zen (Esc)</span>
+          </button>
+        </div>
       </div>
 
       {/* ─── Center Hero Circular Countdown ─── */}

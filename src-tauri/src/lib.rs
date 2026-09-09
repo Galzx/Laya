@@ -1574,6 +1574,25 @@ async fn import_full_workspace_json(
     ))
 }
 
+#[tauri::command]
+fn set_window_always_on_top(window: tauri::Window, always_on_top: bool) -> Result<(), String> {
+    window
+        .set_always_on_top(always_on_top)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_window_fullscreen(window: tauri::Window, fullscreen: bool) -> Result<(), String> {
+    window
+        .set_fullscreen(fullscreen)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn is_window_fullscreen(window: tauri::Window) -> Result<bool, String> {
+    window.is_fullscreen().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1636,7 +1655,10 @@ pub fn run() {
             delete_database_backup,
             open_backups_folder,
             export_full_workspace_json,
-            import_full_workspace_json
+            import_full_workspace_json,
+            set_window_always_on_top,
+            set_window_fullscreen,
+            is_window_fullscreen
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
