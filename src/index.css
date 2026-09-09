@@ -29,12 +29,12 @@
     --accent: 349 22% 90%;
     --accent-foreground: 349 28% 38%;
 
-    --border: 30 14% 87%;
-    --input: 30 14% 87%;
+    --border: 30 14% 78%;
+    --input: 30 14% 78%;
     --ring: 349 28% 52%;
 
     --sidebar: 30 16% 94%;
-    --sidebar-border: 30 14% 88%;
+    --sidebar-border: 30 14% 80%;
 
     --radius: 0.55rem;
   }
@@ -372,6 +372,25 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 /* Smooth timing utility */
 .ease-smooth { transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+
+/* ─── Light Mode Border Contrast Boost ─────────────────────────────── */
+@layer utilities {
+  :where(:root:not(.dark)) .border-border\/40 {
+    border-color: hsl(var(--border) / 0.65);
+  }
+  :where(:root:not(.dark)) .border-border\/50 {
+    border-color: hsl(var(--border) / 0.75);
+  }
+  :where(:root:not(.dark)) .border-border\/60 {
+    border-color: hsl(var(--border) / 0.85);
+  }
+  :where(:root:not(.dark)) .border-border\/70 {
+    border-color: hsl(var(--border) / 0.90);
+  }
+  :where(:root:not(.dark)) .border-border\/80 {
+    border-color: hsl(var(--border) / 0.95);
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .animate-task-check,
