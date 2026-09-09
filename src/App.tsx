@@ -18,6 +18,7 @@ import { QuickTaskModal } from "./components/common/QuickTaskModal";
 import { ContactModal } from "./components/common/ContactModal";
 import { CookieConsent } from "./components/common/CookieConsent";
 import { NotFoundView } from "./components/common/NotFoundView";
+import { getProjectColorDef } from "./components/projects/projectColors";
 import { applyTheme } from "./lib/theme";
 import { setSoundProfile, setTidySoundProfile, setSoundEnabled, playTaskPopSound, playSweepSound } from "./lib/sound";
 import { matchesShortcut, getSavedShortcuts, type ShortcutCombo } from "./lib/shortcuts";
@@ -633,10 +634,10 @@ export default function App() {
         </header>
 
         <div className={cn(
-          "w-full max-w-7xl mx-auto transition-all duration-200",
+          "w-full max-w-7xl 2xl:max-w-[1536px] mx-auto transition-all duration-200",
           activeTab === "settings" || activeTab === "projects" || activeTab === "notes" || activeTab === "focus" || activeTab === "ai"
-            ? "flex-1 min-h-0 overflow-hidden p-3 sm:p-5 lg:p-6 h-full"
-            : "flex-1 p-3 sm:p-5 lg:p-6"
+            ? "flex-1 min-h-0 overflow-hidden p-3 sm:p-5 lg:p-6 2xl:p-8 h-full"
+            : "flex-1 p-3 sm:p-5 lg:p-6 2xl:p-8"
         )}>
           {activeTab === "dashboard" && (
             <div className="w-full space-y-4 sm:space-y-6 lg:space-y-7 animate-smooth-in">
@@ -652,7 +653,7 @@ export default function App() {
                 <div className="space-y-1 sm:space-y-1.5 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap text-xs">
                     <p className="text-xs text-muted-foreground font-medium">{formatDate()}</p>
-                    <span className="text-muted-foreground/40">•</span>
+                    <span className="text-muted-foreground/40">·</span>
                     <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary">
                       <Sparkles className="h-3 w-3" />
                       {todayTasks.length === 0
@@ -661,7 +662,7 @@ export default function App() {
                     </span>
                     {overdueTasks.length > 0 && (
                       <>
-                        <span className="text-muted-foreground/40">•</span>
+                        <span className="text-muted-foreground/40">·</span>
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-500">
                           <Clock className="h-3 w-3" />
                           {overdueTasks.length} overdue
@@ -669,12 +670,22 @@ export default function App() {
                       </>
                     )}
                   </div>
-                  <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-foreground truncate">
-                    {loading ? "Loading…" : `${getGreeting()}.`}
+                  <h1 className="text-xl sm:text-2xl lg:text-3xl 2xl:text-4xl font-bold tracking-tight text-foreground truncate">
+                    {loading ? "Loading..." : `${getGreeting()}.`}
                   </h1>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickTaskOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-muted text-xs font-semibold text-foreground transition-all cursor-pointer shadow-xs"
+                    title="Quick add task"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-primary" />
+                    <span>New Task</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setActiveTab("focus")}
@@ -696,18 +707,18 @@ export default function App() {
               </div>
 
               {/* ─── 2. FOUR-METRIC GLANCE MATRIX ─── */}
-              <div className="grid grid-cols-2 md:grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3.5 lg:gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 2xl:grid-cols-4 gap-2.5 sm:gap-3.5 lg:gap-4 2xl:gap-5">
                 {/* Today's Tasks */}
                 <div
                   onClick={() => setActiveTab("tasks")}
-                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:border-primary/40 transition-all cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
+                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:shadow-card-hover hover:border-primary/40 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] sm:text-xs font-semibold text-muted-foreground truncate">Today's Focus</span>
                     <CheckSquare className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary group-hover:scale-110 transition-transform shrink-0" />
                   </div>
                   <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="text-2xl sm:text-3xl font-bold font-mono text-foreground">{todayTasks.length}</span>
+                    <span className="text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-foreground">{todayTasks.length}</span>
                     <span className="text-[10px] sm:text-xs text-muted-foreground truncate">due today</span>
                   </div>
                   <span className="text-[10px] sm:text-[11px] text-muted-foreground truncate">
@@ -718,14 +729,14 @@ export default function App() {
                 {/* Focus Time */}
                 <div
                   onClick={() => setActiveTab("focus")}
-                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:border-rose-500/40 transition-all cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
+                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:shadow-card-hover hover:border-rose-500/40 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] sm:text-xs font-semibold text-muted-foreground truncate">Focus Logged</span>
                     <Flame className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-rose-500 group-hover:scale-110 transition-transform shrink-0" />
                   </div>
                   <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="text-2xl sm:text-3xl font-bold font-mono text-foreground">
+                    <span className="text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-foreground">
                       {focusMinutesToday > 60 ? `${Math.floor(focusMinutesToday / 60)}h ${focusMinutesToday % 60}m` : `${focusMinutesToday}m`}
                     </span>
                   </div>
@@ -737,14 +748,14 @@ export default function App() {
                 {/* Active Projects */}
                 <div
                   onClick={() => setActiveTab("projects")}
-                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:border-emerald-500/40 transition-all cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
+                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:shadow-card-hover hover:border-emerald-500/40 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] sm:text-xs font-semibold text-muted-foreground truncate">Active Projects</span>
                     <FolderKanban className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-500 group-hover:scale-110 transition-transform shrink-0" />
                   </div>
                   <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="text-2xl sm:text-3xl font-bold font-mono text-foreground">{projects.length}</span>
+                    <span className="text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-foreground">{projects.length}</span>
                     <span className="text-[10px] sm:text-xs text-muted-foreground truncate">in workspace</span>
                   </div>
                   <span className="text-[10px] sm:text-[11px] text-muted-foreground truncate">
@@ -755,14 +766,14 @@ export default function App() {
                 {/* Analytics & Velocity */}
                 <div
                   onClick={() => setActiveTab("analytics")}
-                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:border-teal-500/40 transition-all cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
+                  className="p-3.5 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl border border-border bg-card shadow-card hover:shadow-card-hover hover:border-teal-500/40 hover:-translate-y-0.5 transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-2 sm:space-y-3 min-w-0"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] sm:text-xs font-semibold text-muted-foreground truncate">Velocity</span>
                     <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-teal-500 group-hover:scale-110 transition-transform shrink-0" />
                   </div>
                   <div className="flex items-baseline gap-1.5 sm:gap-2">
-                    <span className="text-2xl sm:text-3xl font-bold font-mono text-foreground">
+                    <span className="text-xl sm:text-2xl lg:text-3xl font-bold font-mono text-foreground">
                       {tasks.filter((t) => t.status === "completed").length}
                     </span>
                     <span className="text-[10px] sm:text-xs text-muted-foreground truncate">total closed</span>
@@ -775,9 +786,9 @@ export default function App() {
               </div>
 
               {/* ─── 3. COMMAND CENTER ─── */}
-              <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 sm:gap-6 items-start">
+              <div className="grid grid-cols-1 lg:grid-cols-12 2xl:grid-cols-12 gap-4 sm:gap-5 lg:gap-6 items-start">
                 {/* LEFT: Today's Focus Action Checklist */}
-                <div className="xl:col-span-7 bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 lg:p-6 shadow-card space-y-4 sm:space-y-5 min-w-0">
+                <div className="lg:col-span-7 xl:col-span-7 2xl:col-span-7 bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 lg:p-6 shadow-card space-y-4 sm:space-y-5 min-w-0">
                   <div className="flex items-center justify-between border-b border-border/60 pb-3">
                     <div className="flex items-center gap-2">
                       <Sun className="h-4 w-4 text-amber-500" />
@@ -796,7 +807,7 @@ export default function App() {
                       type="text"
                       value={newDashboardTaskTitle}
                       onChange={(e) => setNewDashboardTaskTitle(e.target.value)}
-                      placeholder="＋ Add task due today… (press Enter)"
+                      placeholder="+ Add task due today... (press Enter)"
                       className="w-full bg-muted/40 border border-border rounded-xl px-3 sm:px-3.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/40 pr-10"
                     />
                     {newDashboardTaskTitle.trim() && (
@@ -820,40 +831,68 @@ export default function App() {
                       </p>
                     </div>
                   ) : (
-                    <ul className="space-y-2">
-                      {todayTasks.slice(0, 6).map((task) => (
-                        <li
-                          key={task.id}
-                          className="group flex items-center justify-between gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-border/60 bg-muted/30 hover:bg-muted/60 transition-all text-xs min-w-0"
-                        >
-                          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
-                            <button
-                              type="button"
-                              onClick={() => void handleToggleDashboardTask(task)}
-                              className="text-muted-foreground hover:text-emerald-500 transition-colors shrink-0 cursor-pointer"
-                              title="Mark complete"
-                            >
-                              <Circle className="h-4 w-4" />
-                            </button>
-                            <span
-                              onClick={() => setActiveTab("tasks")}
-                              className="font-medium text-foreground truncate cursor-pointer hover:text-primary transition-colors flex-1"
-                              title={task.title}
-                            >
-                              {task.title}
+                    <ul className="space-y-2 max-h-[440px] 2xl:max-h-[540px] overflow-y-auto pr-1">
+                      {todayTasks.slice(0, 8).map((task) => {
+                        const taskProject = task.project_id
+                          ? projects.find((p) => p.id === task.project_id)
+                          : null;
+                        const projectColor = taskProject ? getProjectColorDef(taskProject.color) : null;
+
+                        return (
+                          <li
+                            key={task.id}
+                            className="group flex items-center justify-between gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-border/60 bg-muted/30 hover:bg-muted/60 transition-all text-xs min-w-0"
+                          >
+                            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                              <button
+                                type="button"
+                                onClick={() => void handleToggleDashboardTask(task)}
+                                className="text-muted-foreground hover:text-emerald-500 transition-colors shrink-0 cursor-pointer"
+                                title="Mark complete"
+                              >
+                                <Circle className="h-4 w-4" />
+                              </button>
+                              <div className="min-w-0 flex-1 flex items-center gap-2">
+                                <span
+                                  onClick={() => setActiveTab("tasks")}
+                                  className="font-medium text-foreground truncate cursor-pointer hover:text-primary transition-colors"
+                                  title={task.title}
+                                >
+                                  {task.title}
+                                </span>
+                                {taskProject && projectColor && (
+                                  <span
+                                    className="hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border border-border/60 text-muted-foreground truncate max-w-[120px] shrink-0"
+                                    title={`Project: ${taskProject.name}`}
+                                  >
+                                    <span
+                                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                                      style={{ backgroundColor: projectColor.hex }}
+                                    />
+                                    <span className="truncate">{taskProject.name}</span>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className={cn(
+                              "text-[9px] font-mono font-semibold uppercase px-2 py-0.5 rounded-md border shrink-0",
+                              task.priority === "urgent"
+                                ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                                : task.priority === "high"
+                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                                : "bg-muted text-muted-foreground border-border"
+                            )}>
+                              {task.priority}
                             </span>
-                          </div>
-                          <span className="text-[9px] font-mono font-semibold uppercase px-2 py-0.5 rounded-md border border-border text-muted-foreground shrink-0">
-                            {task.priority}
-                          </span>
-                        </li>
-                      ))}
-                      {todayTasks.length > 6 && (
+                          </li>
+                        );
+                      })}
+                      {todayTasks.length > 8 && (
                         <li
                           onClick={() => setActiveTab("tasks")}
                           className="text-xs text-muted-foreground hover:text-primary transition-colors pt-1 text-center font-mono cursor-pointer"
                         >
-                          +{todayTasks.length - 6} more tasks scheduled
+                          +{todayTasks.length - 8} more tasks scheduled
                         </li>
                       )}
                     </ul>
@@ -897,10 +936,10 @@ export default function App() {
                   )}
                 </div>
 
-                {/* RIGHT: Focus Launch & Sammi Daily Briefing (stacks on wide, 2-col side-by-side on medium) */}
-                <div className="xl:col-span-5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-4 sm:gap-5 min-w-0">
+                {/* RIGHT: Focus Launch, Sammi Daily Briefing & Active Projects */}
+                <div className="lg:col-span-5 xl:col-span-5 2xl:col-span-5 flex flex-col gap-4 sm:gap-5 min-w-0">
                   {/* Focus Session Quick-Launch Card */}
-                  <div className="bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 lg:p-6 shadow-card space-y-3 sm:space-y-4 min-w-0 flex flex-col justify-between">
+                  <div className="bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 lg:p-6 shadow-card space-y-3 sm:space-y-4 min-w-0 flex flex-col justify-between hover:border-border/80 transition-all">
                     <div className="space-y-3">
                       <div className="flex items-center justify-between border-b border-border/60 pb-3">
                         <div className="flex items-center gap-2">
@@ -910,19 +949,47 @@ export default function App() {
                           </h3>
                         </div>
                         <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 shrink-0">
-                          25m
+                          25m Pomodoro
                         </span>
                       </div>
 
                       <p className="text-xs text-muted-foreground leading-relaxed">
                         Lock in with ambient background soundscapes and procedural focus alarms.
                       </p>
+
+                      {/* Quick Duration Presets */}
+                      <div className="grid grid-cols-3 gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("focus")}
+                          className="px-2.5 py-1.5 rounded-xl border border-border bg-muted/30 hover:bg-muted text-[11px] font-medium text-foreground transition-all cursor-pointer text-center"
+                        >
+                          <span className="block font-bold">25m</span>
+                          <span className="text-[9px] text-muted-foreground">Standard</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("focus")}
+                          className="px-2.5 py-1.5 rounded-xl border border-border bg-muted/30 hover:bg-muted text-[11px] font-medium text-foreground transition-all cursor-pointer text-center"
+                        >
+                          <span className="block font-bold">50m</span>
+                          <span className="text-[9px] text-muted-foreground">Deep Work</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("focus")}
+                          className="px-2.5 py-1.5 rounded-xl border border-border bg-muted/30 hover:bg-muted text-[11px] font-medium text-foreground transition-all cursor-pointer text-center"
+                        >
+                          <span className="block font-bold">15m</span>
+                          <span className="text-[9px] text-muted-foreground">Sprint</span>
+                        </button>
+                      </div>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => setActiveTab("focus")}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all cursor-pointer shadow-xs"
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all cursor-pointer shadow-xs mt-2"
                     >
                       <Flame className="h-4 w-4" />
                       <span>Launch Focus Timer</span>
@@ -930,18 +997,23 @@ export default function App() {
                   </div>
 
                   {/* Sammi AI Briefing Card */}
-                  <div className="bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 lg:p-6 shadow-card space-y-3 min-w-0 flex flex-col justify-between">
+                  <div className="bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 lg:p-6 shadow-card space-y-3 min-w-0 flex flex-col justify-between hover:border-border/80 transition-all">
                     <div className="space-y-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-                          <Bot className="h-4 w-4" />
+                      <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                            <Bot className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider truncate">
+                              Sammi Briefing
+                            </h3>
+                            <span className="text-[10px] text-muted-foreground">Local intelligence</span>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <h3 className="text-xs font-bold text-foreground uppercase tracking-wider truncate">
-                            Sammi Briefing
-                          </h3>
-                          <span className="text-[10px] text-muted-foreground">Local intelligence</span>
-                        </div>
+                        <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/60">
+                          100% Offline
+                        </span>
                       </div>
 
                       <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
@@ -954,7 +1026,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setActiveTab("ai")}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer pt-1"
+                      className="inline-flex items-center justify-between gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer pt-2 border-t border-border/40"
                     >
                       <span>Ask Sammi to break down a goal</span>
                       <ArrowRight className="h-3 w-3" />
@@ -962,37 +1034,77 @@ export default function App() {
                   </div>
 
                   {/* Active Projects Glance */}
-                  {projects.length > 0 && (
-                    <div className="sm:col-span-2 xl:col-span-1 bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-card space-y-3 min-w-0">
-                      <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                  <div className="bg-card border border-border rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-card space-y-3 min-w-0 hover:border-border/80 transition-all">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                      <div className="flex items-center gap-2">
+                        <FolderKanban className="h-4 w-4 text-emerald-500" />
                         <span className="text-xs font-bold text-foreground uppercase tracking-wider">
                           Active Projects
                         </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("projects")}
+                        className="text-[10px] text-primary hover:underline cursor-pointer font-medium"
+                      >
+                        View all ({projects.length})
+                      </button>
+                    </div>
+
+                    {projects.length === 0 ? (
+                      <div className="py-4 text-center space-y-1 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">No projects yet</p>
                         <button
                           type="button"
                           onClick={() => setActiveTab("projects")}
-                          className="text-[10px] text-primary hover:underline cursor-pointer"
+                          className="text-primary hover:underline text-[11px] cursor-pointer"
                         >
-                          View all ({projects.length})
+                          + Create your first project
                         </button>
                       </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {projects.slice(0, 4).map((p) => {
+                          const colorDef = getProjectColorDef(p.color);
+                          const projectTasks = tasks.filter((t) => t.project_id === p.id);
+                          const completedCount = projectTasks.filter((t) => t.status === "completed").length;
+                          const progress = projectTasks.length > 0 ? Math.round((completedCount / projectTasks.length) * 100) : 0;
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-1 gap-2">
-                        {projects.slice(0, 3).map((p) => (
-                          <div
-                            key={p.id}
-                            onClick={() => setActiveTab("projects")}
-                            className="flex items-center justify-between p-2.5 rounded-xl bg-muted/30 hover:bg-muted/60 text-xs text-foreground cursor-pointer transition-colors min-w-0"
-                          >
-                            <span className="truncate font-medium flex-1 pr-2">{p.name}</span>
-                            <span className="text-[10px] font-mono text-muted-foreground capitalize shrink-0">
-                              {p.status}
-                            </span>
-                          </div>
-                        ))}
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => setActiveTab("projects")}
+                              className="p-2.5 rounded-xl bg-muted/30 hover:bg-muted/60 text-xs text-foreground cursor-pointer transition-all space-y-1.5 min-w-0 group"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                                    style={{ backgroundColor: colorDef.hex }}
+                                    aria-hidden="true"
+                                  />
+                                  <span className="truncate font-medium group-hover:text-primary transition-colors">
+                                    {p.name}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-mono text-muted-foreground capitalize shrink-0">
+                                  {projectTasks.length} task{projectTasks.length === 1 ? "" : "s"}
+                                </span>
+                              </div>
+                              {projectTasks.length > 0 && (
+                                <div className="w-full bg-border/40 rounded-full h-1 overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full transition-all duration-300"
+                                    style={{ width: `${progress}%`, backgroundColor: colorDef.hex }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1001,7 +1113,7 @@ export default function App() {
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2.5 sm:mb-3.5">
                   Workspace Hubs
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 xl:gap-4">
                   {quickLinks.map(({ id, label, description, icon: Icon, accentColor }) => (
                     <button
                       key={id}
