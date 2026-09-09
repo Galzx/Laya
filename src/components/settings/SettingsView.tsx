@@ -54,6 +54,7 @@ import {
   downloadBlob,
   parseTasksFromCsv,
 } from "../../lib/export";
+import { exportNotesToCsv } from "../../lib/dataPortability";
 import type { Task } from "../tasks/TasksView";
 import type { Project } from "../projects/ProjectsView";
 import type { Note } from "../notes/NoteEditor";
@@ -345,6 +346,26 @@ export const SettingsView: React.FC = () => {
       setDataBanner({ type: "success", message: `Exported ${notes.length} notes as Markdown bundle.` });
     } catch (err) {
       setDataBanner({ type: "error", message: `Export failed: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportNotesCsv = async () => {
+    const ws = workspaces.find((w) => w.is_active === 1) || workspaces[0];
+    if (!ws) return;
+    setIsExporting(true);
+    playTaskPopSound();
+    try {
+      const [notes, projects] = await Promise.all([
+        invoke<Note[]>("get_notes", { workspaceId: ws.id }),
+        invoke<Project[]>("get_projects", { workspaceId: ws.id }),
+      ]);
+      exportNotesToCsv(notes, projects);
+      playSweepSound();
+      setDataBanner({ type: "success", message: `Exported ${notes.length} notes to CSV.` });
+    } catch (err) {
+      setDataBanner({ type: "error", message: `CSV export failed: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       setIsExporting(false);
     }
@@ -1919,6 +1940,28 @@ export const SettingsView: React.FC = () => {
                 >
                   <Download className="h-3.5 w-3.5 text-primary" />
                   <span>Download Notes (.md)</span>
+                </button>
+              </div>
+
+              {/* Notes to CSV */}
+              <div className="p-4 rounded-xl border border-border bg-background flex flex-col justify-between space-y-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="h-4 w-4 text-amber-500 shrink-0" />
+                    <h4 className="text-xs font-bold text-foreground">Notes to CSV</h4>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Spreadsheet-ready CSV table of all notes with notebook project, pinned state, word counts, and timestamps.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportNotesCsv}
+                  disabled={isExporting}
+                  className="w-full py-2 px-3 rounded-lg border border-border bg-card hover:bg-muted text-xs font-semibold text-foreground flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+                >
+                  <Download className="h-3.5 w-3.5 text-primary" />
+                  <span>Download Notes (.csv)</span>
                 </button>
               </div>
 

@@ -32,10 +32,16 @@ import {
   Rocket,
   Lightbulb,
   Zap,
+  Printer,
+  FileDown,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { renderMarkdown, extractWikilinks } from "./markdownParser";
 import { playTaskPopSound } from "../../lib/sound";
+import {
+  exportNoteAsMarkdown,
+  exportNoteToPrintableHtml,
+} from "../../lib/noteExport";
 
 export interface Note {
   id: string;
@@ -204,6 +210,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [showGuideModal, setShowGuideModal] = useState(false);
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [copiedNotification, setCopiedNotification] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -509,6 +516,58 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               <Copy className="h-3.5 w-3.5" />
             )}
           </button>
+
+          {/* Export Dropdown Menu */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer"
+              title="Export note (PDF, Markdown)"
+            >
+              <FileDown className="h-3.5 w-3.5" />
+            </button>
+
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1.5 z-40 w-48 bg-popover border border-border rounded-xl shadow-xl p-1.5 space-y-1 animate-scale-in text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExportMenu(false);
+                    exportNoteToPrintableHtml({
+                      title,
+                      content,
+                      projectName: selectedProject?.name,
+                      createdAt: note.created_at,
+                      updatedAt: note.updated_at,
+                    });
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-muted text-foreground transition-colors text-left cursor-pointer"
+                >
+                  <Printer className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span>Print / Save PDF</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExportMenu(false);
+                    exportNoteAsMarkdown({
+                      title,
+                      content,
+                      projectName: selectedProject?.name,
+                      createdAt: note.created_at,
+                      updatedAt: note.updated_at,
+                    });
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-muted text-foreground transition-colors text-left cursor-pointer"
+                >
+                  <FileDown className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span>Download Markdown</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Pin Button */}
           <button

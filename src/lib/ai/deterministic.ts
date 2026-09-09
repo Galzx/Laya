@@ -2,6 +2,7 @@ import type { Task } from "../../components/tasks/TasksView";
 import type { Project } from "../../components/projects/ProjectsView";
 import type { Note } from "../../components/notes/NoteEditor";
 import type { AiResponse } from "./engine";
+import { parseRecurrenceFromDescription } from "../recurrence";
 
 // ─── LEVENSHTEIN & STRING SIMILARITY ──────────────────────────────────────────
 
@@ -183,6 +184,16 @@ function parseRelativeDate(text: string): number | null {
     return getTomorrowNoon();
   }
 
+  // in X days
+  const inDaysMatch = lower.match(/\bin\s+(\d+)\s+days?\b/);
+  if (inDaysMatch) {
+    const days = parseInt(inDaysMatch[1], 10);
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    d.setHours(12, 0, 0, 0);
+    return Math.floor(d.getTime() / 1000);
+  }
+
   const daysOfWeek = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   for (let i = 0; i < daysOfWeek.length; i++) {
     const day = daysOfWeek[i];
@@ -197,9 +208,16 @@ function parseRelativeDate(text: string): number | null {
     }
   }
 
-  if (lower.includes("next week")) {
+  if (lower.includes("next week") || lower.includes("in a week") || lower.includes("in 1 week")) {
     const d = new Date();
     d.setDate(d.getDate() + 7);
+    d.setHours(12, 0, 0, 0);
+    return Math.floor(d.getTime() / 1000);
+  }
+
+  if (lower.includes("in 2 weeks")) {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
     d.setHours(12, 0, 0, 0);
     return Math.floor(d.getTime() / 1000);
   }
@@ -401,7 +419,7 @@ function generateNoteTemplate(topic: string): { title: string; content: string }
     return {
       title: `Technical Spec: ${topic}`,
       content: `# Technical Spec: ${topic}
-*Author: Engineering • Date: ${dateStr}*
+*Author: Engineering · Date: ${dateStr}*
 
 ## Problem Statement
 What problem does this solve and why does it matter?
@@ -417,6 +435,55 @@ What problem does this solve and why does it matter?
 ## Rollout & Verification Plan
 - [ ] Step 1
 - [ ] Step 2
+`,
+    };
+  }
+
+  if (lower.includes("retro") || lower.includes("retrospective")) {
+    return {
+      title: `Sprint Retrospective (${dateStr})`,
+      content: `# Sprint Retrospective
+*Date: ${dateStr}*
+
+## What Went Well
+- Key win 1
+- Key win 2
+
+## What Could Be Improved
+- Friction point 1
+- Friction point 2
+
+## Action Items for Next Sprint
+- [ ] Action item 1
+- [ ] Action item 2
+`,
+    };
+  }
+
+  if (lower.includes("bug") || lower.includes("incident") || lower.includes("issue")) {
+    return {
+      title: `Bug Report: ${topic}`,
+      content: `# Bug Report: ${topic}
+*Date: ${dateStr}*
+
+## Summary
+Brief description of unexpected behavior.
+
+## Steps to Reproduce
+1. Navigate to ...
+2. Click on ...
+3. Observe error ...
+
+## Expected Behavior
+What was expected to happen.
+
+## Actual Behavior
+What actually occurred (including logs).
+
+## Fix Checklist
+- [ ] Root cause verified
+- [ ] Unit test written
+- [ ] Fix deployed
 `,
     };
   }
@@ -467,6 +534,346 @@ export function tryDeterministicIntent(
       .map((t, i) => `${i + 1}. **${t.title}** [${t.priority.toUpperCase()}]`)
       .join("\n");
   };
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+
+  // 0A. NEXT-ACTION RECOMMENDATION / WHAT SHOULD I WORK ON
+  if (
+    q.includes("what should i work on") ||
+    q.includes("what should i do") ||
+    q.includes("what do i work on") ||
+    q.includes("what's my next task") ||
+    q.includes("whats my next task") ||
+    q.includes("next action") ||
+    q.includes("pick a task") ||
+    q.includes("what to do next") ||
+    q.includes("next task")
+  ) {
+    if (activeTasks.length === 0) {
+      return {
+        source: "deterministic",
+        content: `**No active tasks in your queue!**\n\nYour task backlog is completely clear. You can capture a new task (<kbd>Ctrl+Shift+N</kbd>) or brainstorm in Notes (<kbd>Alt+7</kbd>).`,
+      };
+    }
+
+    const scoredTasks = activeTasks.map((t) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      if (t.priority === "urgent") {
+        score += 45;
+        reasons.push("Marked Urgent");
+      } else if (t.priority === "high") {
+        score += 30;
+        reasons.push("High Priority");
+      } else if (t.priority === "medium") {
+        score += 15;
+      }
+
+      if (t.due_date) {
+        if (t.due_date < todayStart) {
+          score += 50;
+          reasons.push("Overdue");
+        } else if (t.due_date <= todayEnd) {
+          score += 35;
+          reasons.push("Due Today");
+        } else if (t.due_date <= todayEnd + 86400) {
+          score += 20;
+          reasons.push("Due Tomorrow");
+        }
+      }
+
+      if (t.next_action) {
+        score += 10;
+        reasons.push("Clear Next Action Ready");
+      }
+
+      if (t.project_id) {
+        score += 5;
+      }
+
+      return { task: t, score, reasons };
+    });
+
+    scoredTasks.sort((a, b) => b.score - a.score);
+    const top = scoredTasks[0];
+    const runnersUp = scoredTasks.slice(1, 3);
+    const topProj = top.task.project_id ? context.projects.find((p) => p.id === top.task.project_id) : null;
+
+    let rec = `### Recommended Next Action\n\n`;
+    rec += `**Target Task**: **${top.task.title}** [${top.task.priority.toUpperCase()}]\n`;
+    if (topProj) {
+      rec += `- **Project**: ${topProj.name}\n`;
+    }
+    if (top.reasons.length > 0) {
+      rec += `- **Rationale**: ${top.reasons.join(" · ")}\n`;
+    }
+    if (top.task.next_action) {
+      rec += `- **Immediate Step**: *${top.task.next_action}*\n`;
+    }
+    if (top.task.due_date) {
+      rec += `- **Target Deadline**: ${new Date(top.task.due_date * 1000).toLocaleDateString()}\n`;
+    }
+
+    if (runnersUp.length > 0) {
+      rec += `\n**Runners-Up Alternatives:**\n`;
+      runnersUp.forEach((r, idx) => {
+        rec += `${idx + 1}. **${r.task.title}** [${r.task.priority.toUpperCase()}]\n`;
+      });
+    }
+
+    rec += `\n*Recommendation*: Open the **Focus view** (<kbd>Alt+5</kbd>) and lock in a 25-minute sprint on **"${top.task.title}"**!`;
+
+    return {
+      source: "deterministic",
+      content: rec,
+      actionPayload: {
+        type: "toggle_task",
+        taskToggle: {
+          taskId: top.task.id,
+          taskTitle: top.task.title,
+          nextStatus: "completed",
+        },
+      },
+    };
+  }
+
+  // 0B. EISENHOWER MATRIX & PRIORITY TRIAGE
+  if (
+    q.includes("eisenhower") ||
+    q.includes("matrix") ||
+    q.includes("prioritize") ||
+    q.includes("triage") ||
+    (q.includes("sort") && (q.includes("priority") || q.includes("urgency")))
+  ) {
+    if (activeTasks.length === 0) {
+      return {
+        source: "deterministic",
+        content: `**No active tasks to triage!**\n\nYour task queue is clear. Capture tasks with <kbd>Ctrl+Shift+N</kbd>.`,
+      };
+    }
+
+    const q1: Task[] = [];
+    const q2: Task[] = [];
+    const q3: Task[] = [];
+    const q4: Task[] = [];
+
+    activeTasks.forEach((t) => {
+      const isUrgent = t.priority === "urgent" || (t.due_date && t.due_date <= todayEnd);
+      const isImportant = t.priority === "urgent" || t.priority === "high";
+
+      if (isUrgent && isImportant) {
+        q1.push(t);
+      } else if (!isUrgent && isImportant) {
+        q2.push(t);
+      } else if (isUrgent && !isImportant) {
+        q3.push(t);
+      } else {
+        q4.push(t);
+      }
+    });
+
+    let matrix = `### Eisenhower Priority Matrix (${activeTasks.length} Active Tasks)\n\n`;
+
+    matrix += `#### 1. Do First (Urgent & Important) - ${q1.length} tasks\n`;
+    if (q1.length === 0) matrix += `*Clear - no urgent fires right now.*\n\n`;
+    else {
+      q1.slice(0, 4).forEach((t) => {
+        matrix += `- **${t.title}** [${t.priority.toUpperCase()}]\n`;
+      });
+      matrix += `\n`;
+    }
+
+    matrix += `#### 2. Schedule (Important, Strategic) - ${q2.length} tasks\n`;
+    if (q2.length === 0) matrix += `*No scheduled strategic tasks.*\n\n`;
+    else {
+      q2.slice(0, 4).forEach((t) => {
+        matrix += `- **${t.title}** [${t.priority.toUpperCase()}]\n`;
+      });
+      matrix += `\n`;
+    }
+
+    matrix += `#### 3. Delegate / Quick Batch (Urgent, Less Critical) - ${q3.length} tasks\n`;
+    if (q3.length === 0) matrix += `*No urgent maintenance items.*\n\n`;
+    else {
+      q3.slice(0, 4).forEach((t) => {
+        matrix += `- **${t.title}**\n`;
+      });
+      matrix += `\n`;
+    }
+
+    matrix += `#### 4. Backlog (Low Priority) - ${q4.length} tasks\n`;
+    if (q4.length === 0) matrix += `*No low priority backlog.*\n\n`;
+    else {
+      q4.slice(0, 3).forEach((t) => {
+        matrix += `- ${t.title}\n`;
+      });
+      matrix += `\n`;
+    }
+
+    matrix += `*Triage Rule*: Work through Quadrant 1 first, then protect dedicated deep work time for Quadrant 2.`;
+    return { source: "deterministic", content: matrix };
+  }
+
+  // 0C. BATCH OVERDUE RESCHEDULER
+  if (
+    (q.includes("reschedule") || q.includes("postpone") || q.includes("push") || q.includes("move") || q.includes("clean") || q.includes("fix")) &&
+    q.includes("overdue")
+  ) {
+    if (overdueTasks.length === 0) {
+      return {
+        source: "deterministic",
+        content: `**All clear!** You have no overdue tasks to reschedule.`,
+      };
+    }
+
+    let out = `### Overdue Tasks Triage (${overdueTasks.length} overdue)\n\n`;
+    overdueTasks.forEach((t, i) => {
+      out += `${i + 1}. **${t.title}** [${t.priority.toUpperCase()}]\n`;
+    });
+
+    const leadOverdue = overdueTasks[0];
+    const targetEpoch = getTodayNoon();
+
+    out += `\nClick below to reschedule the lead overdue task **"${leadOverdue.title}"** to Today (12:00 PM), or visit Calendar (<kbd>Alt+8</kbd>) to drag all overdue items to new dates:`;
+
+    return {
+      source: "deterministic",
+      content: out,
+      actionPayload: {
+        type: "reschedule_task",
+        taskReschedule: {
+          taskId: leadOverdue.id,
+          taskTitle: leadOverdue.title,
+          dueDateEpoch: targetEpoch,
+        },
+      },
+    };
+  }
+
+  // 0D. HABITS & RECURRING TASKS
+  if (
+    q.includes("habit") ||
+    q.includes("streak") ||
+    q.includes("recurring") ||
+    q.includes("repeating")
+  ) {
+    const recurringList = activeTasks
+      .map((t) => {
+        const info = parseRecurrenceFromDescription(t.description);
+        return { task: t, recurrence: info.data };
+      })
+      .filter((item) => item.recurrence && item.recurrence.frequency !== "none");
+
+    if (recurringList.length === 0) {
+      return {
+        source: "deterministic",
+        content: `**No recurring tasks or habits set up yet.**\n\nTo create a recurring habit, expand any task in Tasks (<kbd>Alt+2</kbd>) and select a repeat interval (Daily, Mon-Fri, Weekly, etc.).`,
+      };
+    }
+
+    let out = `### Active Habits & Recurring Routines (${recurringList.length})\n\n`;
+    recurringList.forEach((r, idx) => {
+      const streak = r.recurrence?.streak || 0;
+      const streakLabel = streak > 0 ? `· Streak: **${streak}x**` : "";
+      out += `${idx + 1}. **${r.task.title}** (${r.recurrence?.frequency}) ${streakLabel}\n`;
+      if (r.task.due_date) {
+        out += `   - Next due: ${new Date(r.task.due_date * 1000).toLocaleDateString()}\n`;
+      }
+    });
+
+    out += `\n*Tip*: Completing recurring tasks automatically increments your streak and schedules the next date!`;
+    return { source: "deterministic", content: out };
+  }
+
+  // 0E. WEEKLY PRODUCTIVITY VELOCITY REPORT
+  if (
+    q.includes("how did i do") ||
+    q.includes("weekly summary") ||
+    q.includes("weekly report") ||
+    q.includes("weekly velocity") ||
+    q.includes("velocity report") ||
+    q.includes("productivity report")
+  ) {
+    const oneWeekAgo = nowSeconds - 7 * 86400;
+    const completedThisWeek = context.tasks.filter(
+      (t) => t.status === "completed" && t.completed_at && t.completed_at >= oneWeekAgo
+    );
+    const activeCount = activeTasks.length;
+    const overdueCount = overdueTasks.length;
+    const totalWeekTouches = completedThisWeek.length + activeCount;
+    const velocityRate = totalWeekTouches > 0 ? Math.round((completedThisWeek.length / totalWeekTouches) * 100) : 0;
+
+    let rep = `### Weekly Productivity Velocity Report\n\n`;
+    rep += `- **Completed Tasks (Last 7 Days)**: **${completedThisWeek.length}**\n`;
+    rep += `- **Remaining Active Queue**: **${activeCount}**\n`;
+    rep += `- **Overdue Ratio**: **${overdueCount}** ${overdueCount > 0 ? "(Action Needed)" : "(All on Schedule)"}\n`;
+    rep += `- **Weekly Completion Velocity**: **${velocityRate}%**\n\n`;
+
+    if (completedThisWeek.length > 0) {
+      rep += `**Completed Highlights:**\n`;
+      completedThisWeek.slice(0, 4).forEach((t) => {
+        rep += `- [x] **${t.title}**\n`;
+      });
+      rep += `\n`;
+    }
+
+    if (overdueCount === 0 && completedThisWeek.length >= 5) {
+      rep += `**Velocity Assessment**: Outstanding focus! You are maintaining high completion velocity with zero overdue debt.\n`;
+    } else if (overdueCount > 0) {
+      rep += `**Recommendation**: Clear the ${overdueCount} overdue task(s) today or reschedule them to protect your schedule integrity.\n`;
+    } else {
+      rep += `**Recommendation**: Great steady pace! Use the **Focus timer** (<kbd>Alt+5</kbd>) to batch through your active priorities.\n`;
+    }
+
+    rep += `\nCheck the **Analytics view** (<kbd>Alt+6</kbd>) for graphical velocity charts and historical heatmaps!`;
+    return { source: "deterministic", content: rep };
+  }
+
+  // 0F. EXPORT & DATA PORTABILITY
+  if (
+    q.includes("export to csv") ||
+    q.includes("export csv") ||
+    q.includes("backup workspace") ||
+    q.includes("backup database") ||
+    q.includes("export tasks") ||
+    q.includes("export notes") ||
+    (q.includes("how to") && q.includes("export"))
+  ) {
+    return {
+      source: "deterministic",
+      content: `### Data Portability & Workspace Backups\n\n` +
+        `Laya provides 100% offline data portability with zero cloud lock-in:\n\n` +
+        `1. **CSV Spreadsheets**: Export Tasks, Projects, or Notes to standard RFC 4180 CSV files (openable in Excel, Numbers, Google Sheets).\n` +
+        `2. **Full Workspace JSON**: Export a complete relational snapshot of all workspaces, projects, notes, and task hierarchies.\n` +
+        `3. **Atomic SQLite Snapshots**: Instant atomic database backup with zero downtime.\n` +
+        `4. **Note Publishing**: In any note (<kbd>Alt+7</kbd>), click the **Export** button to generate styled printable PDFs or Markdown downloads.\n\n` +
+        `Access all backup and export tools in **Settings > Workspace & Data** (<kbd>Ctrl+,</kbd>)!`,
+    };
+  }
+
+  // 0G. AMBIENT SOUND STUDIO
+  if (
+    q.includes("ambient sound") ||
+    q.includes("sound studio") ||
+    q.includes("play rain") ||
+    q.includes("binaural") ||
+    q.includes("brown noise") ||
+    q.includes("focus sound")
+  ) {
+    return {
+      source: "deterministic",
+      content: `### Multi-Track Soundscape Studio\n\n` +
+        `Laya includes a 100% offline procedural ambient audio synthesizer in the **Focus view** (<kbd>Alt+5</kbd>):\n\n` +
+        `- **Rain & Drizzle**: Filtered pink noise for deep calm.\n` +
+        `- **40Hz Gamma Focus**: Binaural beat (200Hz / 240Hz) for deep problem solving.\n` +
+        `- **Deep Brown Noise**: 1/f^2 acoustic masking for noisy environments.\n` +
+        `- **Ocean Waves**: Rhythmic 0.1Hz modulated swells.\n` +
+        `- **Campfire Embers**: Low triangle rumble with random crackles.\n` +
+        `- **Forest Breeze**: Resonant wind bandpass.\n\n` +
+        `Open **Focus** (<kbd>Alt+5</kbd>) and click **Studio** to layer tracks and adjust channel volumes!`,
+    };
+  }
 
   // 1. GREETING & CAPABILITIES
   if (/^(hi|hello|hey|greetings|who are you|what can you do|help me|sammi)\b/.test(q)) {

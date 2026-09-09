@@ -1330,3 +1330,360 @@ class AmbientSoundEngine {
 
 export const ambientSound = new AmbientSoundEngine();
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   5. MULTI-TRACK AMBIENT SOUNDSCAPE STUDIO (Concurrent procedural layers)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+export type SoundscapeTrackId =
+  | "rain"
+  | "binaural-gamma"
+  | "brown-noise"
+  | "surf"
+  | "fire"
+  | "forest";
+
+export interface SoundscapeTrackMeta {
+  id: SoundscapeTrackId;
+  name: string;
+  tag: string;
+  defaultVolume: number;
+}
+
+export const SOUNDSCAPE_TRACKS: SoundscapeTrackMeta[] = [
+  { id: "rain", name: "Rain & Drizzle", tag: "Water", defaultVolume: 0.5 },
+  { id: "binaural-gamma", name: "40Hz Gamma Beat", tag: "Focus", defaultVolume: 0.35 },
+  { id: "brown-noise", name: "Deep Brown Noise", tag: "Masking", defaultVolume: 0.4 },
+  { id: "surf", name: "Ocean Waves", tag: "Rhythm", defaultVolume: 0.45 },
+  { id: "fire", name: "Campfire Embers", tag: "Warmth", defaultVolume: 0.3 },
+  { id: "forest", name: "Forest Breeze", tag: "Nature", defaultVolume: 0.35 },
+];
+
+interface ActiveTrackRecord {
+  id: SoundscapeTrackId;
+  gainNode: GainNode;
+  sourceNodes: (AudioNode | number)[];
+  volume: number;
+}
+
+export class MultiTrackSoundStudio {
+  private activeTracks: Map<SoundscapeTrackId, ActiveTrackRecord> = new Map();
+  private masterVolume = 0.5;
+  private masterGain: GainNode | null = null;
+  private trackVolumes: Record<SoundscapeTrackId, number> = {
+    rain: 0.5,
+    "binaural-gamma": 0.35,
+    "brown-noise": 0.4,
+    surf: 0.45,
+    fire: 0.3,
+    forest: 0.35,
+  };
+
+  constructor() {
+    if (typeof window !== "undefined") {
+      const savedMaster = localStorage.getItem("laya-soundscape-master-vol");
+      if (savedMaster !== null) {
+        const val = parseFloat(savedMaster);
+        if (!isNaN(val)) this.masterVolume = Math.max(0, Math.min(1, val));
+      }
+      const savedVols = localStorage.getItem("laya-soundscape-track-vols");
+      if (savedVols) {
+        try {
+          this.trackVolumes = { ...this.trackVolumes, ...JSON.parse(savedVols) };
+        } catch {
+          // fallback
+        }
+      }
+    }
+  }
+
+  private getOrCreateMasterGain(ctx: AudioContext): GainNode {
+    if (!this.masterGain) {
+      this.masterGain = ctx.createGain();
+      this.masterGain.gain.setValueAtTime(this.masterVolume, ctx.currentTime);
+      this.masterGain.connect(ctx.destination);
+    }
+    return this.masterGain;
+  }
+
+  public getMasterVolume(): number {
+    return this.masterVolume;
+  }
+
+  public setMasterVolume(vol: number): void {
+    this.masterVolume = Math.max(0, Math.min(1, vol));
+    if (typeof window !== "undefined") {
+      localStorage.setItem("laya-soundscape-master-vol", String(this.masterVolume));
+    }
+    const ctx = getAudioContext();
+    if (ctx && this.masterGain) {
+      this.masterGain.gain.setValueAtTime(this.masterVolume, ctx.currentTime);
+    }
+  }
+
+  public getTrackVolume(trackId: SoundscapeTrackId): number {
+    return this.trackVolumes[trackId] ?? 0.4;
+  }
+
+  public setTrackVolume(trackId: SoundscapeTrackId, vol: number): void {
+    const clamped = Math.max(0, Math.min(1, vol));
+    this.trackVolumes[trackId] = clamped;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("laya-soundscape-track-vols", JSON.stringify(this.trackVolumes));
+    }
+    const active = this.activeTracks.get(trackId);
+    if (active) {
+      active.volume = clamped;
+      const ctx = getAudioContext();
+      if (ctx) {
+        active.gainNode.gain.setValueAtTime(clamped * 0.4, ctx.currentTime);
+      }
+    }
+  }
+
+  public isTrackActive(trackId: SoundscapeTrackId): boolean {
+    return this.activeTracks.has(trackId);
+  }
+
+  public getActiveTracks(): SoundscapeTrackId[] {
+    return Array.from(this.activeTracks.keys());
+  }
+
+  public isAnyPlaying(): boolean {
+    return this.activeTracks.size > 0;
+  }
+
+  public startTrack(trackId: SoundscapeTrackId): void {
+    if (this.activeTracks.has(trackId)) return;
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const master = this.getOrCreateMasterGain(ctx);
+    const trackGain = ctx.createGain();
+    const vol = this.getTrackVolume(trackId);
+    trackGain.gain.setValueAtTime(vol * 0.4, ctx.currentTime);
+    trackGain.connect(master);
+
+    const nodes: (AudioNode | number)[] = [];
+    const now = ctx.currentTime;
+
+    switch (trackId) {
+      case "rain": {
+        const bufferSize = ctx.sampleRate * 4;
+        const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        let b0 = 0, b1 = 0, b2 = 0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          b0 = 0.99886 * b0 + white * 0.0555179;
+          b1 = 0.99332 * b1 + white * 0.0750759;
+          b2 = 0.96900 * b2 + white * 0.1538520;
+          data[i] = (b0 + b1 + b2 + white * 0.5362) * 0.15;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = noiseBuffer;
+        src.loop = true;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(1400, now);
+
+        src.connect(filter);
+        filter.connect(trackGain);
+        src.start(now);
+        nodes.push(src);
+        break;
+      }
+
+      case "binaural-gamma": {
+        // 40Hz Gamma perceptual binaural beat: Left = 200 Hz, Right = 240 Hz
+        const merger = ctx.createChannelMerger(2);
+
+        const oscL = ctx.createOscillator();
+        oscL.type = "sine";
+        oscL.frequency.setValueAtTime(200, now);
+        oscL.connect(merger, 0, 0);
+
+        const oscR = ctx.createOscillator();
+        oscR.type = "sine";
+        oscR.frequency.setValueAtTime(240, now);
+        oscR.connect(merger, 0, 1);
+
+        merger.connect(trackGain);
+        oscL.start(now);
+        oscR.start(now);
+        nodes.push(oscL, oscR);
+        break;
+      }
+
+      case "brown-noise": {
+        const bufferSize = ctx.sampleRate * 5;
+        const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        let lastOut = 0.0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          data[i] = (lastOut + 0.02 * white) / 1.02;
+          lastOut = data[i];
+          data[i] *= 3.5;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = noiseBuffer;
+        src.loop = true;
+        src.connect(trackGain);
+        src.start(now);
+        nodes.push(src);
+        break;
+      }
+
+      case "surf": {
+        const bufferSize = ctx.sampleRate * 5;
+        const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        let b0 = 0, b1 = 0;
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          b0 = 0.997 * b0 + white * 0.06;
+          b1 = 0.985 * b1 + white * 0.12;
+          data[i] = (b0 + b1) * 0.5;
+        }
+        const src = ctx.createBufferSource();
+        src.buffer = noiseBuffer;
+        src.loop = true;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(800, now);
+
+        const swellGain = ctx.createGain();
+        swellGain.gain.setValueAtTime(0.3, now);
+
+        const lfo = ctx.createOscillator();
+        lfo.type = "sine";
+        lfo.frequency.setValueAtTime(0.1, now);
+
+        const lfoGain = ctx.createGain();
+        lfoGain.gain.setValueAtTime(0.25, now);
+        lfo.connect(lfoGain);
+        lfoGain.connect(swellGain.gain);
+
+        src.connect(filter);
+        filter.connect(swellGain);
+        swellGain.connect(trackGain);
+
+        src.start(now);
+        lfo.start(now);
+        nodes.push(src, lfo);
+        break;
+      }
+
+      case "fire": {
+        const osc = ctx.createOscillator();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(55, now);
+        const oscGain = ctx.createGain();
+        oscGain.gain.setValueAtTime(0.12, now);
+        osc.connect(oscGain);
+        oscGain.connect(trackGain);
+        osc.start(now);
+        nodes.push(osc);
+
+        const intervalId = window.setInterval(() => {
+          if (!this.activeTracks.has(trackId)) return;
+          const actx = getAudioContext();
+          if (!actx) return;
+          const t = actx.currentTime;
+          const pop = actx.createOscillator();
+          const pGain = actx.createGain();
+          pop.type = "sine";
+          pop.frequency.setValueAtTime(1200 + Math.random() * 800, t);
+          pGain.gain.setValueAtTime(0.0001, t);
+          pGain.gain.exponentialRampToValueAtTime(0.06 + Math.random() * 0.05, t + 0.003);
+          pGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+          pop.connect(pGain);
+          pGain.connect(trackGain);
+          pop.start(t);
+          pop.stop(t + 0.04);
+        }, 320);
+        nodes.push(intervalId as unknown as AudioNode);
+        break;
+      }
+
+      case "forest": {
+        const bufferSize = ctx.sampleRate * 4;
+        const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+        const src = ctx.createBufferSource();
+        src.buffer = noiseBuffer;
+        src.loop = true;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = "bandpass";
+        filter.Q.setValueAtTime(1.8, now);
+        filter.frequency.setValueAtTime(520, now);
+
+        src.connect(filter);
+        filter.connect(trackGain);
+        src.start(now);
+        nodes.push(src);
+        break;
+      }
+    }
+
+    this.activeTracks.set(trackId, {
+      id: trackId,
+      gainNode: trackGain,
+      sourceNodes: nodes,
+      volume: vol,
+    });
+  }
+
+  public stopTrack(trackId: SoundscapeTrackId): void {
+    const active = this.activeTracks.get(trackId);
+    if (!active) return;
+    active.sourceNodes.forEach((node) => {
+      if (typeof node === "number") {
+        clearInterval(node);
+      } else if ("stop" in node && typeof (node as AudioScheduledSourceNode).stop === "function") {
+        try {
+          (node as AudioScheduledSourceNode).stop();
+        } catch {
+          // Ignored
+        }
+      }
+    });
+    try {
+      active.gainNode.disconnect();
+    } catch {
+      // Ignored
+    }
+    this.activeTracks.delete(trackId);
+  }
+
+  public toggleTrack(trackId: SoundscapeTrackId): boolean {
+    if (this.activeTracks.has(trackId)) {
+      this.stopTrack(trackId);
+      return false;
+    } else {
+      this.startTrack(trackId);
+      return true;
+    }
+  }
+
+  public stopAll(): void {
+    const trackIds = Array.from(this.activeTracks.keys());
+    trackIds.forEach((id) => this.stopTrack(id));
+    if (this.masterGain) {
+      try {
+        this.masterGain.disconnect();
+      } catch {
+        // Ignored
+      }
+      this.masterGain = null;
+    }
+  }
+}
+
+export const soundscapeStudio = new MultiTrackSoundStudio();
+

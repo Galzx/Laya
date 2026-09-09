@@ -21,6 +21,7 @@ import {
   Radio,
   VolumeX,
   ListTodo,
+  SlidersHorizontal,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import {
@@ -28,6 +29,9 @@ import {
   playFocusAlarmSound,
   FOCUS_ALARM_PROFILES,
   ambientSound,
+  soundscapeStudio,
+  SOUNDSCAPE_TRACKS,
+  type SoundscapeTrackId,
   type AmbientSoundType,
 } from "../../lib/sound";
 import type { Task, Subtask } from "../tasks/TasksView";
@@ -87,6 +91,22 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
   const [ambientVol, setAmbientVol] = useState<number>(() => {
     const saved = localStorage.getItem("laya-focus-ambient-vol");
     return saved ? parseFloat(saved) : 0.35;
+  });
+
+  // Multi-Track Ambient Sound Studio
+  const [showMixerStudio, setShowMixerStudio] = useState(false);
+  const [activeSoundTracks, setActiveSoundTracks] = useState<SoundscapeTrackId[]>(() =>
+    soundscapeStudio.getActiveTracks()
+  );
+  const [masterSoundVol, setMasterSoundVol] = useState<number>(() =>
+    soundscapeStudio.getMasterVolume()
+  );
+  const [trackVols, setTrackVols] = useState<Record<SoundscapeTrackId, number>>(() => {
+    const vols: Partial<Record<SoundscapeTrackId, number>> = {};
+    SOUNDSCAPE_TRACKS.forEach((t) => {
+      vols[t.id] = soundscapeStudio.getTrackVolume(t.id);
+    });
+    return vols as Record<SoundscapeTrackId, number>;
   });
 
   const timerRef = useRef<number | null>(null);
@@ -234,6 +254,30 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
     ambientSound.setVolume(vol);
   };
 
+  const handleToggleSoundTrack = (trackId: SoundscapeTrackId) => {
+    playTaskPopSound();
+    soundscapeStudio.toggleTrack(trackId);
+    setActiveSoundTracks(soundscapeStudio.getActiveTracks());
+  };
+
+  const handleTrackVolumeChange = (trackId: SoundscapeTrackId, vol: number) => {
+    soundscapeStudio.setTrackVolume(trackId, vol);
+    setTrackVols((prev) => ({ ...prev, [trackId]: vol }));
+  };
+
+  const handleMasterVolumeChange = (vol: number) => {
+    soundscapeStudio.setMasterVolume(vol);
+    setMasterSoundVol(vol);
+  };
+
+  const handleMuteAllTracks = () => {
+    playTaskPopSound();
+    soundscapeStudio.stopAll();
+    ambientSound.stop();
+    setAmbientType("none");
+    setActiveSoundTracks([]);
+  };
+
   const toggleRunning = () => {
     playTaskPopSound();
     if (!isRunning && ambientType !== "none") {
@@ -334,12 +378,12 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
           </button>
         </div>
 
-        {/* Ambient Soundscape Pills */}
+        {/* Ambient Soundscape Pills & Sound Studio Button */}
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-muted/50 p-1 rounded-xl border border-border/60 gap-1">
             {AMBIENT_PRESETS.map((p) => {
               const Icon = p.icon;
-              const isActive = ambientType === p.id;
+              const isActive = ambientType === p.id && activeSoundTracks.length <= 1;
               return (
                 <button
                   key={p.id}
@@ -360,9 +404,32 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
             })}
           </div>
 
-          {/* Ambient Volume Slider (Visible when active) */}
-          {ambientType !== "none" && (
-            <div className="flex items-center gap-1.5 px-2 bg-muted/40 rounded-xl border border-border/60 animate-fade-in">
+          {/* Multi-Track Sound Studio Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setShowMixerStudio(!showMixerStudio)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-2xs",
+              showMixerStudio
+                ? "bg-primary text-primary-foreground border-primary"
+                : activeSoundTracks.length > 0
+                ? "bg-primary/10 text-primary border-primary/30"
+                : "bg-muted/50 text-muted-foreground border-border/70 hover:text-foreground hover:bg-muted"
+            )}
+            title="Multi-Track Ambient Sound Studio"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Studio</span>
+            {activeSoundTracks.length > 0 && (
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-primary/20 text-primary border border-primary/30 font-bold">
+                {activeSoundTracks.length}
+              </span>
+            )}
+          </button>
+
+          {/* Ambient Volume Slider (Visible when single track is active) */}
+          {ambientType !== "none" && !showMixerStudio && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/40 rounded-xl border border-border/60 animate-fade-in">
               <Volume2 className="h-3.5 w-3.5 text-muted-foreground" />
               <input
                 type="range"
@@ -378,6 +445,121 @@ export const FocusView: React.FC<FocusViewProps> = ({ workspaceId }) => {
           )}
         </div>
       </div>
+
+      {/* ─── MULTI-TRACK SOUND STUDIO PANEL (Collapsible) ─── */}
+      {showMixerStudio && (
+        <div className="p-5 bg-card border border-border rounded-2xl shadow-card space-y-4 animate-scale-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-3">
+            <div>
+              <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 text-primary" />
+                <span>Multi-Track Soundscape Studio</span>
+              </h3>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Layer multiple procedural focus soundscapes concurrently with independent volume channels.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* Master Volume Slider */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-muted/50 border border-border">
+                <Volume2 className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-[11px] font-semibold text-foreground">Master:</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={masterSoundVol}
+                  onChange={(e) => handleMasterVolumeChange(parseFloat(e.target.value))}
+                  className="w-20 h-1 bg-muted-foreground/30 accent-primary cursor-pointer"
+                  title={`Master Volume: ${Math.round(masterSoundVol * 100)}%`}
+                />
+                <span className="text-[10px] font-mono text-muted-foreground w-7 text-right">
+                  {Math.round(masterSoundVol * 100)}%
+                </span>
+              </div>
+
+              {activeSoundTracks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleMuteAllTracks}
+                  className="px-2.5 py-1.5 rounded-xl border border-border bg-background hover:bg-muted text-xs font-semibold text-muted-foreground hover:text-rose-500 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                  title="Mute all active tracks"
+                >
+                  <VolumeX className="h-3.5 w-3.5" />
+                  <span>Mute All</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 6 Soundscape Track Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {SOUNDSCAPE_TRACKS.map((track) => {
+              const isActive = activeSoundTracks.includes(track.id);
+              const vol = trackVols[track.id] ?? track.defaultVolume;
+              return (
+                <div
+                  key={track.id}
+                  className={cn(
+                    "p-3.5 rounded-xl border transition-all flex flex-col justify-between space-y-3",
+                    isActive
+                      ? "bg-primary/5 border-primary/30 ring-1 ring-primary/20 shadow-2xs"
+                      : "bg-background border-border hover:border-border/80"
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-foreground truncate">
+                          {track.name}
+                        </span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground border border-border/60 uppercase">
+                          {track.tag}
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSoundTrack(track.id)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs",
+                        isActive
+                          ? "bg-primary text-primary-foreground hover:opacity-90"
+                          : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80"
+                      )}
+                    >
+                      {isActive ? "Playing" : "Start"}
+                    </button>
+                  </div>
+
+                  {/* Individual Track Volume Slider */}
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/40">
+                    <span className="text-[10px] text-muted-foreground font-medium">Channel Vol</span>
+                    <div className="flex items-center gap-1.5 flex-1 max-w-[140px]">
+                      <input
+                        type="range"
+                        min="0.05"
+                        max="1"
+                        step="0.05"
+                        value={vol}
+                        onChange={(e) => handleTrackVolumeChange(track.id, parseFloat(e.target.value))}
+                        className="w-full h-1 bg-muted-foreground/30 accent-primary cursor-pointer"
+                        title={`${track.name} volume: ${Math.round(vol * 100)}%`}
+                      />
+                      <span className="text-[10px] font-mono text-muted-foreground w-7 text-right">
+                        {Math.round(vol * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Custom Duration Stepper Toolbar */}
       {mode === "custom" && (

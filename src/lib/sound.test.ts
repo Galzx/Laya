@@ -48,5 +48,28 @@ describe("Web Audio Feedback Profiles", () => {
     setTidySoundProfile("magic-wand");
     expect(getTidySoundProfile()).toBe("magic-wand");
   });
+
+  describe("Multi-Track Sound Studio", () => {
+    it("defines 6 distinct procedural soundscape tracks", async () => {
+      const { SOUNDSCAPE_TRACKS } = await import("./sound");
+      expect(SOUNDSCAPE_TRACKS).toHaveLength(6);
+      const ids = SOUNDSCAPE_TRACKS.map((t) => t.id);
+      expect(ids).toContain("rain");
+      expect(ids).toContain("binaural-gamma");
+      expect(ids).toContain("brown-noise");
+      expect(ids).toContain("surf");
+      expect(ids).toContain("fire");
+      expect(ids).toContain("forest");
+    });
+
+    it("manages master and track volumes correctly", async () => {
+      const { soundscapeStudio } = await import("./sound");
+      soundscapeStudio.setMasterVolume(0.75);
+      expect(soundscapeStudio.getMasterVolume()).toBe(0.75);
+
+      soundscapeStudio.setTrackVolume("rain", 0.8);
+      expect(soundscapeStudio.getTrackVolume("rain")).toBe(0.8);
+    });
+  });
 });
 

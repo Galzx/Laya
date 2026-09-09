@@ -21,6 +21,7 @@ import { TaskItem } from "./TaskItem";
 import { CatHelper } from "../common/CatHelper";
 import { KanbanBoard } from "../kanban/KanbanBoard";
 import type { Project } from "../projects/ProjectsView";
+import { processRecurringCompletion } from "../../lib/recurrence";
 
 export interface Task {
   id: string;
@@ -184,6 +185,35 @@ export const TasksView: React.FC<TasksViewProps> = ({ workspaceId, initialViewMo
         });
       } else {
         await refreshAfter(() => invoke("toggle_task_status", { taskId: task.id }), "Couldn't update this task");
+      }
+      return;
+    }
+
+    // Check if task is recurring
+    const rec = processRecurringCompletion(task.due_date, task.description);
+    if (rec.isRecurring) {
+      playTaskPopSound();
+      setCompletingTaskIds((prev) => new Set(prev).add(task.id));
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
+      try {
+        await invoke("update_task", {
+          taskId: task.id,
+          title: task.title,
+          description: rec.nextDescription,
+          priority: task.priority,
+          dueDate: rec.nextDueDate,
+          nextAction: task.next_action,
+          projectId: task.project_id,
+        });
+      } catch (err) {
+        setErrorMessage(`Couldn't advance recurring task: ${String(err)}`);
+      } finally {
+        setCompletingTaskIds((prev) => {
+          const next = new Set(prev);
+          next.delete(task.id);
+          return next;
+        });
+        await loadData(false);
       }
       return;
     }

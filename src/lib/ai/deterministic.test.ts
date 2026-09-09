@@ -69,8 +69,102 @@ describe("Deterministic AI Engine & Algorithms", () => {
       expect(res?.content).toContain("Ctrl+K");
     });
 
+    it("recommends the highest impact next action deterministically", () => {
+      const res = tryDeterministicIntent("what should i work on right now", mockContext);
+      expect(res).not.toBeNull();
+      expect(res?.source).toBe("deterministic");
+      expect(res?.content).toContain("Recommended Next Action");
+      expect(res?.content).toContain("Implement auth token validation");
+    });
+
+    it("generates an Eisenhower Priority Matrix from active tasks", () => {
+      const res = tryDeterministicIntent("prioritize my tasks", mockContext);
+      expect(res).not.toBeNull();
+      expect(res?.content).toContain("Eisenhower Priority Matrix");
+      expect(res?.content).toContain("Schedule");
+    });
+
+    it("detects overdue batch reschedule intents", () => {
+      const overdueContext = {
+        ...mockContext,
+        tasks: [
+          {
+            id: "t-overdue",
+            workspace_id: "ws-1",
+            title: "Submit invoice",
+            status: "pending" as const,
+            priority: "urgent" as const,
+            due_date: Math.floor(Date.now() / 1000) - 86400 * 2,
+            created_at: Math.floor(Date.now() / 1000) - 86400 * 3,
+            updated_at: Math.floor(Date.now() / 1000),
+            is_archived: 0,
+          },
+        ] as unknown as Task[],
+      };
+      const res = tryDeterministicIntent("reschedule overdue tasks", overdueContext);
+      expect(res).not.toBeNull();
+      expect(res?.content).toContain("Overdue Tasks Triage");
+      expect(res?.actionPayload?.type).toBe("reschedule_task");
+    });
+
+    it("inspects recurring routines and habit streaks", () => {
+      const habitContext = {
+        ...mockContext,
+        tasks: [
+          {
+            id: "t-habit",
+            workspace_id: "ws-1",
+            title: "Morning code review",
+            description: "Daily routine <!-- laya:recurrence:{\"freq\":\"daily\",\"streak\":4} -->",
+            status: "pending" as const,
+            priority: "high" as const,
+            created_at: Math.floor(Date.now() / 1000),
+            updated_at: Math.floor(Date.now() / 1000),
+            is_archived: 0,
+          },
+        ] as unknown as Task[],
+      };
+      const res = tryDeterministicIntent("show my habits and streaks", habitContext);
+      expect(res).not.toBeNull();
+      expect(res?.content).toContain("Active Habits & Recurring Routines");
+      expect(res?.content).toContain("4x");
+    });
+
+    it("provides weekly velocity productivity reports", () => {
+      const res = tryDeterministicIntent("how did i do this week", mockContext);
+      expect(res).not.toBeNull();
+      expect(res?.content).toContain("Weekly Productivity Velocity Report");
+      expect(res?.content).toContain("Weekly Completion Velocity");
+    });
+
+    it("provides data portability and export assistance", () => {
+      const res = tryDeterministicIntent("how do i export to csv", mockContext);
+      expect(res).not.toBeNull();
+      expect(res?.content).toContain("Data Portability & Workspace Backups");
+      expect(res?.content).toContain("CSV Spreadsheets");
+    });
+
+    it("provides ambient soundscape guidance", () => {
+      const res = tryDeterministicIntent("play rain and ambient sound", mockContext);
+      expect(res).not.toBeNull();
+      expect(res?.content).toContain("Multi-Track Soundscape Studio");
+      expect(res?.content).toContain("40Hz Gamma Focus");
+    });
+
     it("strictly contains zero em-dashes in deterministic outputs", () => {
-      const queries = ["hello", "audit", "shortcuts", "what can you do"];
+      const queries = [
+        "hello",
+        "audit",
+        "shortcuts",
+        "what can you do",
+        "what should i work on",
+        "prioritize my tasks",
+        "reschedule overdue",
+        "show my habits",
+        "how did i do this week",
+        "export to csv",
+        "ambient sound studio",
+      ];
       queries.forEach((q) => {
         const res = tryDeterministicIntent(q, mockContext);
         if (res) {
@@ -81,7 +175,19 @@ describe("Deterministic AI Engine & Algorithms", () => {
 
     it("strictly contains zero emojis in deterministic outputs", () => {
       const emojiRegex = /[\uD83C-\uDBFF\uDC00-\uDFFF\u2600-\u26FF\u2700-\u27BF]/;
-      const queries = ["hello", "audit", "shortcuts", "what can you do"];
+      const queries = [
+        "hello",
+        "audit",
+        "shortcuts",
+        "what can you do",
+        "what should i work on",
+        "prioritize my tasks",
+        "reschedule overdue",
+        "show my habits",
+        "how did i do this week",
+        "export to csv",
+        "ambient sound studio",
+      ];
       queries.forEach((q) => {
         const res = tryDeterministicIntent(q, mockContext);
         if (res) {

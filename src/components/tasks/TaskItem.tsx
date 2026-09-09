@@ -18,6 +18,8 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Repeat,
+  Flame,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { DatePicker } from "../ui/DatePicker";
@@ -26,6 +28,12 @@ import { getProjectColorDef } from "../projects/projectColors";
 import { deconstructWithSammi } from "../../lib/ai/engine";
 import { getAiConfig, saveAiConfig } from "../../lib/ai/storage";
 import { playTaskPopSound } from "../../lib/sound";
+import {
+  parseRecurrenceFromDescription,
+  embedRecurrenceInDescription,
+  formatRecurrenceLabel,
+  type RecurrenceFrequency,
+} from "../../lib/recurrence";
 
 async function openExternalUrl(url: string) {
   try {
@@ -115,11 +123,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   projectColor,
   isArchiveView,
 }) => {
+  const initialRecurrence = parseRecurrenceFromDescription(task.description);
   const [editTitle, setEditTitle] = useState(task.title);
-  const [editDescription, setEditDescription] = useState(task.description ?? "");
+  const [editDescription, setEditDescription] = useState(initialRecurrence.cleanDescription);
   const [editPriority, setEditPriority] = useState<Task["priority"]>(task.priority);
   const [editDueDate, setEditDueDate] = useState(toLocalDateInput(task.due_date));
   const [editNextAction, setEditNextAction] = useState(task.next_action ?? "");
+  const [editRecurrence, setEditRecurrence] = useState<RecurrenceFrequency>(
+    initialRecurrence.data?.frequency || "none"
+  );
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeconstructing, setIsDeconstructing] = useState(false);
@@ -190,11 +202,13 @@ export const TaskItem: React.FC<TaskItemProps> = ({
 
   // Sync edits when task updates
   useEffect(() => {
+    const rec = parseRecurrenceFromDescription(task.description);
     setEditTitle(task.title);
-    setEditDescription(task.description ?? "");
+    setEditDescription(rec.cleanDescription);
     setEditPriority(task.priority);
     setEditDueDate(toLocalDateInput(task.due_date));
     setEditNextAction(task.next_action ?? "");
+    setEditRecurrence(rec.data?.frequency || "none");
   }, [task]);
 
   // Load subtasks when expanding if not loaded yet
@@ -212,9 +226,16 @@ export const TaskItem: React.FC<TaskItemProps> = ({
     if (!editTitle.trim()) return;
     try {
       setIsSaving(true);
+      const parsedCurrent = parseRecurrenceFromDescription(task.description);
+      const finalDescription = embedRecurrenceInDescription(
+        editDescription.trim() || null,
+        editRecurrence,
+        parsedCurrent.data?.streak || 0,
+        parsedCurrent.data?.lastCompleted
+      );
       await onSaveEdits({
         title: editTitle.trim(),
-        description: editDescription.trim() || null,
+        description: finalDescription || null,
         priority: editPriority,
         dueDate: dateInputToEpoch(editDueDate),
         nextAction: editNextAction.trim() || null,
@@ -332,6 +353,32 @@ export const TaskItem: React.FC<TaskItemProps> = ({
                       <span className="truncate max-w-[120px]">{projectName}</span>
                     </span>
                   )}
+
+                  {/* Recurrence & Habit Streak Badges */}
+                  {(() => {
+                    const rec = parseRecurrenceFromDescription(task.description);
+                    if (!rec.data || rec.data.frequency === "none") return null;
+                    return (
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        <span
+                          className="text-[10px] font-semibold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 bg-primary/10 text-primary border-primary/25"
+                          title={formatRecurrenceLabel(rec.data.frequency)}
+                        >
+                          <Repeat className="h-2.5 w-2.5 shrink-0" />
+                          <span className="capitalize">{rec.data.frequency}</span>
+                        </span>
+                        {rec.data.streak > 0 && (
+                          <span
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                            title={`${rec.data.streak} consecutive completions`}
+                          >
+                            <Flame className="h-2.5 w-2.5 shrink-0" />
+                            <span>{rec.data.streak}x</span>
+                          </span>
+                        )}
+                      </span>
+                    );
+                  })()}
                 </div>
 
                 {task.next_action && (
@@ -466,8 +513,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({
           {/* Full Expanded Edit Drawer with smooth drop-down accordion */}
           {isExpanded && (
             <div className="bg-muted/20 border-t border-border rounded-b-xl px-6 py-4 space-y-4 animate-drawer-down origin-top">
-              {/* Title, Priority & Due Date Row */}
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2.5 items-center">
+              {/* Title, Priority, Repeat & Due Date Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-[1fr_auto_auto_auto] gap-2.5 items-center">
                 <input
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
@@ -484,6 +531,20 @@ export const TaskItem: React.FC<TaskItemProps> = ({
                   <option value="medium">Medium Priority</option>
                   <option value="high">High Priority</option>
                   <option value="urgent">Urgent Priority</option>
+                </select>
+
+                <select
+                  value={editRecurrence}
+                  onChange={(e) => setEditRecurrence(e.target.value as RecurrenceFrequency)}
+                  className="bg-background border border-border text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/40 transition-colors cursor-pointer"
+                  title="Repeat Interval"
+                >
+                  <option value="none">No Repeat</option>
+                  <option value="daily">Repeats Daily</option>
+                  <option value="weekdays">Repeats Mon-Fri</option>
+                  <option value="weekly">Repeats Weekly</option>
+                  <option value="biweekly">Repeats Every 2 Weeks</option>
+                  <option value="monthly">Repeats Monthly</option>
                 </select>
 
                 <DatePicker
