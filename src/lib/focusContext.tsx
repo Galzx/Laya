@@ -544,6 +544,31 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem("laya-focus-auto-popout-mini", String(val));
   }, []);
 
+  // Track latest state in ref to avoid re-binding BroadcastChannel listener on every second
+  const latestStateRef = useRef({
+    isRunning,
+    timeLeft,
+    totalDurationSeconds,
+    mode,
+    selectedTaskTitle,
+    sessionsCompletedToday,
+    toggleRunning,
+    skipTimer,
+  });
+
+  useEffect(() => {
+    latestStateRef.current = {
+      isRunning,
+      timeLeft,
+      totalDurationSeconds,
+      mode,
+      selectedTaskTitle,
+      sessionsCompletedToday,
+      toggleRunning,
+      skipTimer,
+    };
+  });
+
   // Sync state snapshot to localStorage and BroadcastChannel
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -561,15 +586,19 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Ignore storage errors
     }
 
-    if (broadcastChannelRef.current) {
-      broadcastChannelRef.current.postMessage({
-        type: "STATE_UPDATE",
-        payload: snapshot,
-      });
+    try {
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.postMessage({
+          type: "STATE_UPDATE",
+          payload: snapshot,
+        });
+      }
+    } catch {
+      // Guard against channel closed errors
     }
   }, [isRunning, timeLeft, totalDurationSeconds, mode, selectedTaskTitle, sessionsCompletedToday]);
 
-  // Setup broadcast channel receiver for commands from mini timer window
+  // Setup broadcast channel receiver once on mount
   useEffect(() => {
     if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return;
     let channel: BroadcastChannel | null = null;
@@ -578,23 +607,28 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       broadcastChannelRef.current = channel;
 
       channel.onmessage = (event) => {
-        const { type } = event.data || {};
-        if (type === "TOGGLE_PLAY") {
-          toggleRunning();
-        } else if (type === "SKIP") {
-          skipTimer();
-        } else if (type === "REQUEST_STATE") {
-          channel?.postMessage({
-            type: "STATE_UPDATE",
-            payload: {
-              isRunning,
-              timeLeft,
-              totalDuration: totalDurationSeconds,
-              currentMode: mode,
-              activeTaskTitle: selectedTaskTitle,
-              sessionsCompletedToday,
-            },
-          });
+        try {
+          const { type } = event.data || {};
+          if (type === "TOGGLE_PLAY") {
+            latestStateRef.current.toggleRunning();
+          } else if (type === "SKIP") {
+            latestStateRef.current.skipTimer();
+          } else if (type === "REQUEST_STATE") {
+            const s = latestStateRef.current;
+            channel?.postMessage({
+              type: "STATE_UPDATE",
+              payload: {
+                isRunning: s.isRunning,
+                timeLeft: s.timeLeft,
+                totalDuration: s.totalDurationSeconds,
+                currentMode: s.mode,
+                activeTaskTitle: s.selectedTaskTitle,
+                sessionsCompletedToday: s.sessionsCompletedToday,
+              },
+            });
+          }
+        } catch {
+          // Guard against message handler errors
         }
       };
     } catch {
@@ -602,9 +636,16 @@ export const FocusProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     return () => {
-      if (channel) channel.close();
+      broadcastChannelRef.current = null;
+      if (channel) {
+        try {
+          channel.close();
+        } catch {
+          // Ignore close errors
+        }
+      }
     };
-  }, [isRunning, timeLeft, totalDurationSeconds, mode, selectedTaskTitle, sessionsCompletedToday, toggleRunning, skipTimer]);
+  }, []);
 
   // Auto pop-out mini timer on leaving Laya (window blur) when timer is actively running
   useEffect(() => {

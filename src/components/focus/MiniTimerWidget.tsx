@@ -62,7 +62,11 @@ export const MiniTimerWidget: React.FC = () => {
     };
 
     // Request immediate sync from main window
-    channel.postMessage({ type: "REQUEST_STATE" });
+    try {
+      channel.postMessage({ type: "REQUEST_STATE" });
+    } catch {
+      // Ignore initial message error
+    }
 
     // Also listen for storage event as backup
     const handleStorage = (e: StorageEvent) => {
@@ -78,14 +82,23 @@ export const MiniTimerWidget: React.FC = () => {
     window.addEventListener("storage", handleStorage);
 
     return () => {
-      channel.close();
+      channelRef.current = null;
+      try {
+        channel.close();
+      } catch {
+        // Ignore close error
+      }
       window.removeEventListener("storage", handleStorage);
     };
   }, []);
 
   const sendCommand = (cmd: string) => {
-    if (channelRef.current) {
-      channelRef.current.postMessage({ type: cmd });
+    try {
+      if (channelRef.current) {
+        channelRef.current.postMessage({ type: cmd });
+      }
+    } catch {
+      // Ignore channel closed error
     }
   };
 
